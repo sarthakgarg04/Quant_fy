@@ -2,203 +2,418 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Scanner – QuantScanner</title>
-<link rel="stylesheet" href="/qs-design.css">
+<link rel="stylesheet" href="/shared.css">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
-<script src="/qs-shared.js"></script>
+<script src="/shared.js"></script>
 <style>
-.main      { display:flex; height:calc(100vh - var(--nav-h)); overflow:hidden; }
-.sidebar   { width:390px; min-width:280px; background:var(--surface); border-right:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; }
-.controls  { padding:10px 14px; border-bottom:1px solid var(--border); display:flex; flex-wrap:wrap; gap:6px; }
-.list-hdr  { padding:6px 14px; border-bottom:1px solid var(--border); display:grid; grid-template-columns:1fr 70px 90px 68px; gap:4px; }
+.main      { display:flex; height:calc(100vh - 50px); overflow:hidden; }
+
+/* ── Sidebar ── */
+.sidebar   { width:400px; min-width:300px; background:var(--surface); border-right:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; }
+
+.controls  { padding:12px 14px; border-bottom:1px solid var(--border); display:flex; flex-direction:column; gap:8px; }
+.ctrl-row  { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+.ctrl-label{ font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; margin-bottom:2px; }
+
+/* Trend multi-select */
+.trend-select-wrap { position:relative; }
+.trend-dropdown {
+  position:absolute; top:calc(100% + 4px); left:0; right:0; z-index:200;
+  background:var(--surface); border:1px solid var(--border); border-radius:var(--r2);
+  max-height:260px; overflow-y:auto; display:none; box-shadow:0 8px 24px rgba(0,0,0,.4);
+}
+.trend-dropdown.open { display:block; }
+.trend-opt {
+  display:flex; align-items:center; gap:8px;
+  padding:7px 12px; cursor:pointer; font-size:12px;
+  transition:background .1s;
+}
+.trend-opt:hover { background:var(--s2); }
+.trend-opt input[type=checkbox] { accent-color:var(--accent); width:14px; height:14px; flex-shrink:0; }
+.trend-trigger {
+  width:100%; background:var(--s2); color:var(--text);
+  border:1px solid var(--border); border-radius:var(--r);
+  padding:6px 10px; font-size:12px; text-align:left; cursor:pointer;
+  display:flex; justify-content:space-between; align-items:center;
+}
+.trend-trigger:hover { border-color:var(--muted); }
+.trend-trigger .arrow { font-size:9px; color:var(--muted); }
+
+/* List */
+.list-hdr  { padding:6px 14px; border-bottom:1px solid var(--border); display:grid; grid-template-columns:1fr 70px 90px 60px; gap:4px; flex-shrink:0; }
+.list-hdr span { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; }
 .stock-list{ flex:1; overflow-y:auto; }
 
-.si {
-  padding:9px 14px; border-bottom:1px solid var(--border);
-  cursor:pointer; transition:background .1s;
-  display:grid; grid-template-columns:1fr 70px 90px 68px; gap:4px; align-items:center;
-}
-.si:hover  { background:var(--surface2); }
-.si.active { background:#1e2a3d; border-left:3px solid var(--accent); padding-left:11px; }
-.sname { font-weight:600; font-size:13px; }
-.smeta { font-size:10px; color:var(--muted); margin-top:1px; }
-.sprice{ text-align:right; font-weight:600; font-size:13px; }
+.si { padding:9px 14px; border-bottom:1px solid var(--border); cursor:pointer; transition:background .1s; display:grid; grid-template-columns:1fr 70px 90px 60px; gap:4px; align-items:center; }
+.si:hover  { background:var(--s2); }
+.si.active { background:#1a2640; border-left:3px solid var(--accent); padding-left:11px; }
+.sname  { font-weight:600; font-size:13px; }
+.smeta  { font-size:10px; color:var(--muted); margin-top:1px; }
+.sprice { text-align:right; font-weight:600; font-size:13px; }
+.szone  { font-size:10px; color:var(--green); text-align:right; }
 
-.chart-panel{ flex:1; display:flex; flex-direction:column; min-width:0; overflow:hidden; }
-.chart-hdr  { padding:10px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:var(--surface); flex-shrink:0; }
-.ct-ticker  { font-size:18px; font-weight:700; }
-.ct-price   { font-size:15px; color:var(--green); }
-#chart-wrap { flex:1; position:relative; min-height:0; }
-
-.detail-strip { padding:10px 14px; border-top:1px solid var(--border); background:var(--surface); display:none; flex-shrink:0; }
-.detail-grid  { display:grid; grid-template-columns:repeat(6,1fr); gap:8px; }
-.detail-cell  { }
-.dl { font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
-.dv { font-size:12px; font-weight:600; margin-top:2px; }
+/* ── Chart panel ── */
+.chart-panel { flex:1; display:flex; flex-direction:column; min-width:0; overflow:hidden; }
+.chart-hdr   { padding:10px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:var(--surface); flex-shrink:0; }
+.ct-ticker   { font-size:18px; font-weight:700; }
+.ct-price    { font-size:15px; color:var(--green); }
+.legend      { display:flex; gap:14px; padding:5px 18px; border-bottom:1px solid var(--border); font-size:11px; color:var(--muted); background:var(--s2); flex-shrink:0; }
+.li          { display:flex; align-items:center; gap:4px; }
+.ld          { width:7px; height:7px; border-radius:50%; }
+#chart-wrap  { flex:1; position:relative; min-height:0; }
+.metrics     { display:flex; border-top:1px solid var(--border); background:var(--surface); flex-shrink:0; }
+.met         { flex:1; padding:8px 14px; border-right:1px solid var(--border); }
+.met:last-child { border-right:none; }
+.ml { font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
+.mv { font-size:14px; font-weight:600; margin-top:2px; }
 </style>
 </head>
 <body>
-<nav class="qs-nav" id="qs-nav"></nav>
+<script>QS.nav('scanner')</script>
 
 <div class="main">
+
   <!-- ── Sidebar ── -->
   <div class="sidebar">
     <div class="controls">
-      <select id="wl"   class="ctrl">
-        <option value="nifty50">Nifty 50</option>
-        <option value="next50">Next 50</option>
-        <option value="midcap">Midcap</option>
-        <option value="all_nifty">All Nifty</option>
-      </select>
-      <select id="dir"  class="ctrl">
-        <option value="buy">Buy Setups</option>
-        <option value="sell">Sell Setups</option>
-      </select>
-      <select id="itv"  class="ctrl">
-        <option value="1d">Daily</option>
-        <option value="1wk">Weekly</option>
-        <option value="1h">1 Hour</option>
-      </select>
-      <input  id="minc" type="number" class="ctrl" value="0.40" step="0.05" min="0" max="1" style="width:58px" title="Min confluence">
-      <button id="sbtn" class="btn btn-primary" onclick="runScan()">▶ Scan</button>
-    </div>
+
+      <!-- Row 1: Watchlist + Direction + Interval -->
+      <div class="ctrl-row">
+        <select id="dir" class="ctrl">
+          <option value="buy">Buy Zones</option>
+          <option value="sell">Sell Zones</option>
+        </select>
+        <select id="itv" class="ctrl">
+          <option value="1d">Daily</option>
+          <option value="1wk">Weekly</option>
+          <option value="1h">1H</option>
+        </select>
+      </div>
+
+      <!-- Row 2: Pivot Order + Zone Lookback -->
+      <div class="ctrl-row">
+        <div style="display:flex;flex-direction:column;flex:1">
+          <div class="ctrl-label">Pivot Order</div>
+          <input id="order" type="number" class="ctrl" value="5" min="1" max="30" style="width:100%">
+        </div>
+        <div style="display:flex;flex-direction:column;flex:1">
+          <div class="ctrl-label">Zone Lookback (bars)</div>
+          <input id="zlb" type="number" class="ctrl" value="20" min="5" max="500" style="width:100%">
+        </div>
+        <div style="display:flex;flex-direction:column;flex:1">
+          <div class="ctrl-label">Legout × ATR</div>
+          <input id="legout" type="number" class="ctrl" value="1.35" step="0.05" min="0.5" max="5" style="width:100%">
+        </div>
+      </div>
+
+      <!-- Row 3: Trend filter -->
+      <div>
+        <div class="ctrl-label">Trend Filter</div>
+        <div class="trend-select-wrap" id="trend-wrap">
+          <button class="trend-trigger" onclick="toggleTrendDD(event)">
+            <span id="trend-label">All trends</span>
+            <span class="arrow">▼</span>
+          </button>
+          <div class="trend-dropdown" id="trend-dd">
+            <div class="trend-opt" style="border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:4px">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--accent);font-weight:600">
+                <input type="checkbox" id="all-trends" checked onchange="toggleAllTrends(this)"> All trends
+              </label>
+            </div>
+            <!-- Bullish group -->
+            <div style="padding:3px 12px;font-size:9px;color:var(--green);text-transform:uppercase;letter-spacing:.5px">Bullish</div>
+            <div class="trend-opt"><input type="checkbox" class="tc" value="strong_uptrend" checked><span>Strong uptrend</span></div>
+            <div class="trend-opt"><input type="checkbox" class="tc" value="continuous_uptrend" checked><span>Continuous uptrend</span></div>
+            <div class="trend-opt"><input type="checkbox" class="tc" value="up" checked><span>Up</span></div>
+            <div class="trend-opt"><input type="checkbox" class="tc" value="bullish_mitigation" checked><span>Bullish mitigation</span></div>
+            <div class="trend-opt"><input type="checkbox" class="tc" value="semi-up" checked><span>Semi-up</span></div>
+            <div class="trend-opt"><input type="checkbox" class="tc" value="weakening_uptrend" checked><span>Weakening uptrend</span></div>
+            <!-- Neutral group -->
+            <div style="padding:3px 12px;font-size:9px;color:var(--amber);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Neutral</div>
+            <div class="trend-opt"><input type="checkbox" class="tc" value="consolidate" checked><span>Consolidate</span></div>
+            <div class="trend-opt"><input type="checkbox" class="tc" value="flat_consolidation" checked><span>Flat consolidation</span></div>
+            <div class="trend-opt"><input type="checkbox" class="tc" value="deep_consolidation" checked><span>Deep consolidation</span></div>
+            <div class="trend-opt"><input type="checkbox" class="tc" value="sw" checked><span>SW (sideways)</span></div>
+            <div class="trend-opt"><input type="checkbox" class="tc" value="expanding_structure" checked><span>Expanding structure</span></div>
+            <!-- Bearish group -->
+            <div style="padding:3px 12px;font-size:9px;color:var(--red);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Bearish</div>
+            <div class="trend-opt"><input type="checkbox" class="tc" value="weakening_downtrend" checked><span>Weakening downtrend</span></div>
+            <div class="trend-opt"><input type="checkbox" class="tc" value="down" checked><span>Down</span></div>
+            <div class="trend-opt"><input type="checkbox" class="tc" value="continuous_downtrend" checked><span>Continuous downtrend</span></div>
+            <div class="trend-opt"><input type="checkbox" class="tc" value="strong_downtrend" checked><span>Strong downtrend</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 4: Scan button -->
+      <button id="sbtn" class="btn btn-primary" onclick="runScan()" style="width:100%">▶ Scan</button>
+
+    </div><!-- controls -->
 
     <div class="list-hdr">
-      <span class="sec-title">Stock</span>
-      <span class="sec-title" style="text-align:right">Price</span>
-      <span class="sec-title" style="text-align:center">Trend</span>
-      <span class="sec-title">Score</span>
+      <span>Stock</span>
+      <span style="text-align:right">Price</span>
+      <span style="text-align:center">Trend</span>
+      <span style="text-align:right">Zone</span>
     </div>
 
     <div class="stock-list" id="list">
-      <div class="empty-state">
-        <div class="empty-icon">📊</div>
-        <div class="empty-text">Press Scan to find setups</div>
-      </div>
+      <div class="empty-state"><span class="empty-icon">📊</span><span>Press Scan to find zones</span></div>
     </div>
-  </div>
+  </div><!-- sidebar -->
 
   <!-- ── Chart Panel ── -->
   <div class="chart-panel">
     <div class="chart-hdr">
       <span class="ct-ticker" id="ct-t">–</span>
       <span class="ct-price"  id="ct-p">–</span>
-      <span id="ct-tr" style="font-size:11px;padding:2px 10px;border-radius:99px;background:var(--surface3)">–</span>
+      <span id="ct-tr" class="tbadge badge-co">–</span>
       <div class="tf-group" style="margin-left:auto">
-        <button class="tf-btn active" onclick="setChartTf('1d',this)">1D</button>
-        <button class="tf-btn" onclick="setChartTf('1wk',this)">1W</button>
-        <button class="tf-btn" onclick="setChartTf('1h',this)">1H</button>
+        <button class="tf-btn active" onclick="setTf('1d',this)">1D</button>
+        <button class="tf-btn" onclick="setTf('1wk',this)">1W</button>
+        <button class="tf-btn" onclick="setTf('1h',this)">1H</button>
       </div>
     </div>
 
-    <div class="legend-row">
-      <span class="leg-item"><span class="leg-dot" style="background:#ef4444"></span>Top pivot</span>
-      <span class="leg-item"><span class="leg-dot" style="background:#22c55e"></span>Bottom pivot</span>
-      <span class="leg-item"><span class="leg-dot" style="background:#22c55e;opacity:.5"></span>Buy zone</span>
-      <span class="leg-item"><span class="leg-dot" style="background:#ef4444;opacity:.5"></span>Sell zone</span>
+    <div class="legend">
+      <span class="li"><span class="ld" style="background:#ef4444"></span>Top pivot</span>
+      <span class="li"><span class="ld" style="background:#22c55e"></span>Bottom pivot</span>
+      <span class="li"><span style="display:inline-block;width:14px;height:8px;background:rgba(34,197,94,.25);border:1px solid #22c55e;border-radius:2px"></span>Buy zone</span>
+      <span class="li"><span style="display:inline-block;width:14px;height:8px;background:rgba(239,68,68,.25);border:1px solid #ef4444;border-radius:2px"></span>Sell zone</span>
     </div>
 
     <div id="chart-wrap">
-      <div class="empty-state" id="chart-empty">
-        <div class="empty-icon">📈</div>
-        <div class="empty-text">Select a stock to view chart</div>
-      </div>
+      <div class="empty-state"><span class="empty-icon">📈</span><span>Select a stock to view chart</span></div>
     </div>
 
-    <div class="metric-row" style="border-top:1px solid var(--border);background:var(--surface);flex-shrink:0">
-      <div class="metric-tile"><div class="metric-label">ATR %</div><div class="metric-value" id="m1">–</div></div>
-      <div class="metric-tile"><div class="metric-label">Trend Str.</div><div class="metric-value" id="m2">–</div></div>
-      <div class="metric-tile"><div class="metric-label">Zones</div><div class="metric-value" id="m3">–</div></div>
-      <div class="metric-tile"><div class="metric-label">HTF Flag</div><div class="metric-value" id="m4">–</div></div>
-      <div class="metric-tile"><div class="metric-label">Confluence</div><div class="metric-value" id="m5">–</div></div>
-    </div>
-
-    <div class="detail-strip" id="det">
-      <div class="detail-grid" id="dg"></div>
+    <div class="metrics">
+      <div class="met"><div class="ml">ATR %</div><div class="mv" id="m1">–</div></div>
+      <div class="met"><div class="ml">Trend Str.</div><div class="mv" id="m2">–</div></div>
+      <div class="met"><div class="ml">Zones Found</div><div class="mv" id="m3">–</div></div>
+      <div class="met"><div class="ml">Zone Age</div><div class="mv" id="m4">–</div></div>
+      <div class="met"><div class="ml">Pivots</div><div class="mv" id="m5">–</div></div>
     </div>
   </div>
-</div>
+
+</div><!-- main -->
 
 <script>
-renderNav('scanner', `<span class="qs-nav-badge" id="cnt">0 setups</span>`);
-
-const API = '/api';
+const API = QS.API;
 let chart=null, cs=null, xtra=[], chartTf='1d', rows=[], activeRow=null;
+const ST = 'qs_scanner_v2';
 
-// ── Restore state ──────────────────────────────────────────────────────
-(function restoreControls() {
-  const s = loadState();
-  if (s.scanner_wl)   G('wl').value   = s.scanner_wl;
-  if (s.scanner_dir)  G('dir').value  = s.scanner_dir;
-  if (s.scanner_itv)  G('itv').value  = s.scanner_itv;
-  if (s.scanner_minc) G('minc').value = s.scanner_minc;
-  if (s.scanner_tf)   {
-    chartTf = s.scanner_tf;
-    document.querySelectorAll('.tf-btn').forEach(b => {
-      b.classList.toggle('active', b.textContent.toLowerCase().replace('w','wk') === s.scanner_tf);
-    });
-  }
-  if (s.scanner_rows?.length) {
-    rows = s.scanner_rows;
-    G('cnt').textContent = `${rows.length} setups`;
-    renderList(rows);
-    if (s.scanner_active) setTimeout(() => restoreActiveTicker(s.scanner_active), 300);
-  }
-})();
+/* ── Trend dropdown ───────────────────────────────────────────────── */
+function toggleTrendDD(e) {
+  e.stopPropagation();
+  document.getElementById('trend-dd').classList.toggle('open');
+}
+document.addEventListener('click', () => {
+  document.getElementById('trend-dd').classList.remove('open');
+});
+document.getElementById('trend-dd').addEventListener('click', e => e.stopPropagation());
 
-async function restoreActiveTicker(ticker) {
-  const row = rows.find(r => r.ticker === ticker);
-  if (row) await selectStock(ticker, row, false);
+function toggleAllTrends(cb) {
+  document.querySelectorAll('.tc').forEach(c => c.checked = cb.checked);
+  updateTrendLabel();
 }
 
-// ── Save controls on change ────────────────────────────────────────────
-['wl','dir','itv','minc'].forEach(id => {
-  G(id).addEventListener('change', () => saveState({
-    scanner_wl: G('wl').value, scanner_dir: G('dir').value,
-    scanner_itv: G('itv').value, scanner_minc: G('minc').value,
-  }));
+function updateTrendLabel() {
+  const all  = document.querySelectorAll('.tc');
+  const chk  = [...all].filter(c => c.checked);
+  const allCb = document.getElementById('all-trends');
+  allCb.checked = chk.length === all.length;
+  allCb.indeterminate = chk.length > 0 && chk.length < all.length;
+  document.getElementById('trend-label').textContent =
+    chk.length === all.length ? 'All trends' :
+    chk.length === 0          ? 'No trends selected' :
+    `${chk.length} trend${chk.length>1?'s':''} selected`;
+}
+
+document.querySelectorAll('.tc').forEach(cb => {
+  cb.addEventListener('change', () => {
+    updateTrendLabel();
+    saveState();
+  });
 });
+
+function getSelectedTrends() {
+  const chk = [...document.querySelectorAll('.tc')].filter(c => c.checked).map(c => c.value);
+  const all  = document.querySelectorAll('.tc').length;
+  return chk.length === all ? '' : chk.join(',');
+}
+
+/* ── State ────────────────────────────────────────────────────────── */
+function saveState() {
+  const trends = [...document.querySelectorAll('.tc')].map(c => ({v:c.value,ch:c.checked}));
+  sessionStorage.setItem(ST, JSON.stringify({
+    dir: G('dir').value, itv: G('itv').value,
+    order: G('order').value, zlb: G('zlb').value, legout: G('legout').value,
+    chartTf, rows, activeTicker: activeRow?.ticker,
+    trends,
+  }));
+}
+
+function restoreState() {
+  try {
+    const s = JSON.parse(sessionStorage.getItem(ST)||'null');
+    if (!s) return;
+    if (s.dir)   G('dir').value   = s.dir;
+    if (s.itv)   G('itv').value   = s.itv;
+    if (s.order) G('order').value = s.order;
+    if (s.zlb)   G('zlb').value   = s.zlb;
+    if (s.legout) G('legout').value = s.legout;
+    if (s.chartTf) {
+      chartTf = s.chartTf;
+      document.querySelectorAll('.tf-btn').forEach(b => {
+        const map = {'1d':'1D','1wk':'1W','1h':'1H'};
+        b.classList.toggle('active', b.textContent === map[chartTf]);
+      });
+    }
+    if (s.trends) {
+      s.trends.forEach(t => {
+        const cb = document.querySelector(`.tc[value="${t.v}"]`);
+        if (cb) cb.checked = t.ch;
+      });
+      updateTrendLabel();
+    }
+    if (s.rows?.length) {
+      rows = s.rows;
+      QS.navBadge(`${rows.length} setups`);
+      renderList(rows);
+      if (s.activeTicker) {
+        setTimeout(() => {
+          const row = rows.find(r => r.ticker === s.activeTicker);
+          if (row) selectStock(row.ticker, row, false);
+        }, 200);
+      }
+    }
+  } catch(e) {}
+}
 
 function G(id) { return document.getElementById(id); }
 
-// ── Chart ──────────────────────────────────────────────────────────────
+/* ── Chart ────────────────────────────────────────────────────────── */
 function initChart() {
   const wrap = G('chart-wrap');
-  G('chart-empty').style.display = 'none';
+  wrap.innerHTML = '';
   if (chart) { try { chart.remove(); } catch(e){} }
   xtra = [];
-  chart = createQSChart(wrap);
-  cs    = addCandleSeries(chart);
+  chart = LightweightCharts.createChart(wrap, {
+    width: wrap.clientWidth, height: wrap.clientHeight || 400,
+    layout:    { background:{color:'#0d0f12'}, textColor:'#8892a0' },
+    grid:      { vertLines:{color:'#1e2530'}, horzLines:{color:'#1e2530'} },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+    rightPriceScale: { borderColor:'#2a3040' },
+    timeScale: { borderColor:'#2a3040', timeVisible:true, secondsVisible:false },
+  });
+  cs = chart.addCandlestickSeries({
+    upColor:'#22c55e', downColor:'#ef4444',
+    borderUpColor:'#22c55e', borderDownColor:'#ef4444',
+    wickUpColor:'#22c55e', wickDownColor:'#ef4444',
+  });
+  new ResizeObserver(() => {
+    if (chart) chart.applyOptions({ width:wrap.clientWidth, height:wrap.clientHeight });
+  }).observe(wrap);
 }
 
-function renderChart(d) {
+function renderChart(d, activeZone) {
   xtra.forEach(s => { try { chart.removeSeries(s); } catch(e){} });
   xtra = [];
+
   cs.setData(d.candles);
   cs.setMarkers((d.pivots||[]).map(p => ({
-    time: p.time, size: 1,
+    time: p.time,
     position: p.type==='T' ? 'aboveBar' : 'belowBar',
     color:    p.type==='T' ? '#ef4444'  : '#22c55e',
     shape:    p.type==='T' ? 'arrowDown': 'arrowUp',
+    size: 1,
   })));
-  // Buy zones
-  (d.buy_zones||[]).slice(-6).forEach(z => {
-    const s1 = addLineSeries(chart,'#22c55e',1.5,1);
-    s1.setData([{time:z.time_start,value:z.price_high},{time:z.time_end,value:z.price_high}]);
-    const s2 = addLineSeries(chart,'#22c55e44',1,3);
-    s2.setData([{time:z.time_start,value:z.price_low},{time:z.time_end,value:z.price_low}]);
-    xtra.push(s1,s2);
+
+  const dir = d.direction || 'buy';
+  const zoneColor = dir === 'buy' ? '#22c55e' : '#ef4444';
+
+  // Draw ALL zones
+  const allZones = dir === 'buy' ? (d.buy_zones||[]) : (d.sell_zones||[]);
+  allZones.forEach(z => {
+    const isActive = activeZone &&
+      z.time_start === activeZone.zone_legin_ts &&
+      z.time_end   === activeZone.zone_legout_ts;
+
+    // Extend right so the zone box is clearly visible
+    const extendedEnd = z.time_end + Math.round((z.time_end - z.time_start) * 0.5 + 86400 * 5);
+
+    if (isActive) {
+      // ── Active zone: soft border lines + baseline fill (high→low only) ──
+
+      // Top border — thin, soft
+      const sTop = chart.addLineSeries({
+        color: zoneColor + '99', lineWidth: 1, lineStyle: 0,
+        crosshairMarkerVisible:false, lastValueVisible:false, priceLineVisible:false,
+      });
+      sTop.setData([
+        { time: z.time_start, value: z.price_high },
+        { time: extendedEnd,  value: z.price_high },
+      ]);
+
+      // Bottom border — thin, soft
+      const sBot = chart.addLineSeries({
+        color: zoneColor + '99', lineWidth: 1, lineStyle: 0,
+        crosshairMarkerVisible:false, lastValueVisible:false, priceLineVisible:false,
+      });
+      sBot.setData([
+        { time: z.time_start, value: z.price_low },
+        { time: extendedEnd,  value: z.price_low },
+      ]);
+
+      // Fill: baseline at price_low so fill stays BETWEEN high and low
+      const sFill = chart.addBaselineSeries({
+        baseValue:        { type: 'price', price: z.price_low },
+        topLineColor:     'transparent',
+        topFillColor1:    zoneColor + '45',
+        topFillColor2:    zoneColor + '25',
+        bottomLineColor:  'transparent',
+        bottomFillColor1: 'transparent',
+        bottomFillColor2: 'transparent',
+        lineWidth:        0,
+        crosshairMarkerVisible: false,
+        lastValueVisible:       false,
+        priceLineVisible:       false,
+      });
+      sFill.setData([
+        { time: z.time_start, value: z.price_high },
+        { time: extendedEnd,  value: z.price_high },
+      ]);
+
+      xtra.push(sTop, sBot, sFill);
+
+    } else {
+      // ── Non-active zones: dimmed dashed borders only, no fill ──
+      const sTop = chart.addLineSeries({
+        color: zoneColor + '40', lineWidth: 1, lineStyle: 2,
+        crosshairMarkerVisible:false, lastValueVisible:false, priceLineVisible:false,
+      });
+      sTop.setData([
+        { time: z.time_start, value: z.price_high },
+        { time: extendedEnd,  value: z.price_high },
+      ]);
+      const sBot = chart.addLineSeries({
+        color: zoneColor + '40', lineWidth: 1, lineStyle: 2,
+        crosshairMarkerVisible:false, lastValueVisible:false, priceLineVisible:false,
+      });
+      sBot.setData([
+        { time: z.time_start, value: z.price_low },
+        { time: extendedEnd,  value: z.price_low },
+      ]);
+      xtra.push(sTop, sBot);
+    }
   });
-  // Sell zones
-  (d.sell_zones||[]).slice(-6).forEach(z => {
-    const s1 = addLineSeries(chart,'#ef4444',1.5,1);
-    s1.setData([{time:z.time_start,value:z.price_low},{time:z.time_end,value:z.price_low}]);
-    xtra.push(s1);
-  });
+
   chart.timeScale().fitContent();
 }
 
+/* ── Select stock ────────────────────────────────────────────────── */
 async function selectStock(ticker, row, persist=true) {
   activeRow = row;
   document.querySelectorAll('.si').forEach(e => e.classList.remove('active'));
@@ -209,63 +424,64 @@ async function selectStock(ticker, row, persist=true) {
   G('ct-p').textContent = row ? '₹' + (row.close||0).toLocaleString('en-IN') : '';
   const tr = G('ct-tr');
   tr.textContent = (row?.trend||'').replace(/_/g,' ');
-  tr.style.cssText = `font-size:11px;padding:2px 10px;border-radius:99px;${trendHeaderStyle(row?.trend)}`;
+  tr.className   = 'tbadge ' + QS.tClass(row?.trend);
 
-  G('m1').textContent = row ? row.atr_pct+'%' : '–';
+  G('m1').textContent = row ? row.atr_pct + '%' : '–';
   G('m2').textContent = row?.trend_strength || '–';
   G('m3').textContent = row?.zones_count ?? '–';
-  G('m4').textContent = row ? (row.htf_flag ? '⚠ Yes':'No') : '–';
-  G('m5').textContent = row ? Math.round((row.confluence||0)*100)+'%' : '–';
+  G('m4').textContent = row ? row.bars_ago + ' bars ago' : '–';
+  G('m5').textContent = row?.pivot_count ?? '–';
 
   if (!chart) initChart();
+
+  // Fetch chart data with same pivot order
+  const ord = G('order').value;
   try {
-    const r = await fetch(`${API}/chart/${encodeURIComponent(ticker)}?interval=${chartTf}`);
+    const scanItv = G('itv').value;
+    const useItv  = chartTf !== '1d' ? chartTf : scanItv;
+    const r = await fetch(`${API}/chart/${encodeURIComponent(ticker)}?interval=${useItv}&order=${ord}`);
     const d = await r.json();
-    if (!d.error) renderChart(d);
+    if (!d.error) {
+      d.direction = row?.direction || 'buy';
+      renderChart(d, row);
+    }
   } catch(e) {}
 
-  if (row) {
-    G('det').style.display = 'block';
-    G('dg').innerHTML = [
-      ['Pivots', row.pivot_count],
-      ['Trend Sc.', pct(row.trend_score)],
-      ['Zone Sc.', pct(row.zone_score)],
-      ['HTF Sc.', pct(row.htf_score)],
-      ['Vol Sc.', pct(row.vol_score)],
-      ['Flag', row.flag_pattern ? '✓':'–'],
-    ].map(([l,v]) => `<div class="detail-cell"><div class="dl">${l}</div><div class="dv">${v??'–'}</div></div>`).join('');
-  }
-
-  if (persist) saveState({ scanner_active: ticker });
+  if (persist) saveState();
 }
 
-function setChartTf(tf, btn) {
+function setTf(tf, btn) {
   chartTf = tf;
   document.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  saveState({ scanner_tf: tf });
   if (activeRow) selectStock(activeRow.ticker, activeRow, false);
+  saveState();
 }
 
-// ── Scan ───────────────────────────────────────────────────────────────
+/* ── Scan ────────────────────────────────────────────────────────── */
 async function runScan() {
   const btn = G('sbtn');
   btn.disabled = true; btn.textContent = '⏳ Scanning…';
-  G('list').innerHTML = '<div class="empty-state"><div class="spinner"></div><div class="empty-text">Fetching & analysing…</div></div>';
+  G('list').innerHTML = '<div class="empty-state"><div class="spin"></div><span>Scanning…</span></div>';
+
   try {
-    const url = `${API}/scan?watchlist=${G('wl').value}&direction=${G('dir').value}&interval=${G('itv').value}&min_confluence=${G('minc').value}`;
-    const r   = await fetch(url);
-    const d   = await r.json();
-    rows      = d.results || [];
-    G('cnt').textContent = `${rows.length} setups`;
+    const trends = getSelectedTrends();
+    const url = `${API}/scan?`
+      + `&direction=${G('dir').value}`
+      + `&interval=${G('itv').value}`
+      + `&order=${G('order').value}`
+      + `&zone_lookback=${G('zlb').value}`
+      + `&legout_mult=${G('legout').value}`
+      + (trends ? `&trend_filter=${encodeURIComponent(trends)}` : '');
+
+    const r = await fetch(url);
+    const d = await r.json();
+    rows = d.results || [];
+    QS.navBadge(`${rows.length} setups`);
     renderList(rows);
-    saveState({
-      scanner_rows: rows, scanner_active: null,
-      scanner_wl: G('wl').value, scanner_dir: G('dir').value,
-      scanner_itv: G('itv').value, scanner_minc: G('minc').value,
-    });
+    saveState();
   } catch(e) {
-    G('list').innerHTML = `<div class="empty-state"><div style="color:var(--red)">⚠ ${e.message}</div><div class="empty-sub">Is <code>python app.py</code> running?</div></div>`;
+    G('list').innerHTML = `<div class="empty-state"><span style="color:var(--red)">⚠ ${e.message}</span><small>Run: python app.py</small></div>`;
   } finally {
     btn.disabled = false; btn.textContent = '▶ Scan';
   }
@@ -274,34 +490,30 @@ async function runScan() {
 function renderList(rs) {
   const list = G('list');
   if (!rs.length) {
-    list.innerHTML = '<div class="empty-state"><div class="empty-text">No setups — lower the min score</div></div>';
+    list.innerHTML = '<div class="empty-state"><span>No zones found — adjust filters</span></div>';
     return;
   }
-  list.innerHTML = rs.map((r,i) => {
-    const w = Math.round((r.confluence||0)*100);
-    return `<div class="si" data-t="${r.ticker}" data-i="${i}">
+  list.innerHTML = rs.map((r,i) => `
+    <div class="si" data-t="${r.ticker}" data-i="${i}">
       <div>
         <div class="sname">${r.ticker.replace('.NS','')}</div>
-        <div class="smeta">${(r.trend||'').replace(/_/g,' ')} · ATR ${r.atr_pct||0}%</div>
+        <div class="smeta">${(r.trend||'').replace(/_/g,' ')} · ATR ${r.atr_pct}%</div>
       </div>
       <div class="sprice">₹${(r.close||0).toLocaleString('en-IN')}</div>
-      <div style="text-align:center">${trendBadge(r.trend)}</div>
-      <div class="score-bar">
-        <span class="score-num">${w}%</span>
-        <div class="score-track"><div class="score-fill" style="width:${w}%;background:${scoreColor(r.confluence||0)}"></div></div>
-      </div>
-    </div>`;
-  }).join('');
+      <div style="text-align:center"><span class="tbadge ${QS.tClass(r.trend)}">${(r.trend||'').replace(/_/g,' ')}</span></div>
+      <div class="szone">${r.bars_ago}b ago</div>
+    </div>`
+  ).join('');
   document.querySelectorAll('.si').forEach((el,i) => {
     el.onclick = () => selectStock(rows[i].ticker, rows[i]);
   });
-  // Restore active highlight
-  const s = loadState();
-  if (s.scanner_active) {
-    const el = document.querySelector(`.si[data-t="${s.scanner_active}"]`);
-    if (el) el.classList.add('active');
-  }
 }
+
+/* ── Boot ────────────────────────────────────────────────────────── */
+['dir','itv','order','zlb','legout'].forEach(id => {
+  G(id).addEventListener('change', saveState);
+});
+restoreState();
 </script>
 </body>
 </html>

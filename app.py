@@ -62,6 +62,7 @@ import numpy as np
 
 from data_fetch.data_fetch import (
     fetch_ohlcv, fetch_batch, get_watchlist,
+    list_stored, load_stored_df,
     load_token, save_token, is_token_valid,
     list_stored, delete_stored, storage_summary,
     get_eq_instruments, instrument_key_to_symbol,
@@ -137,23 +138,42 @@ def health(): return jsonify({"status": "ok", "version": "3.0"})
 # Scanner
 # ─────────────────────────────────────────────────────────────────────────────
 
+# REPLACE WITH:
 @app.route("/api/scan")
 def scan():
-    wl_name  = request.args.get("watchlist",      "nifty50")
-    direction= request.args.get("direction",      "buy")
-    interval = request.args.get("interval",       "1d")
-    days     = int(request.args.get("days",       500))
-    order    = int(request.args.get("order",      5))
-    min_conf = float(request.args.get("min_confluence", 0.40))
+    direction     = request.args.get("direction",     "buy")
+    interval      = request.args.get("interval",      "1d")
+    order         = int(request.args.get("order",     5))
+    zone_lookback = int(request.args.get("zone_lookback",  20))
+    legout_mult   = float(request.args.get("legout_mult",  1.35))
+    trend_filter  = request.args.get("trend_filter",  "")
 
-    tickers   = get_watchlist(wl_name)
-    data_d    = fetch_batch(tickers, interval=interval, days=days)
-    weekly_d  = fetch_batch(tickers, interval="1wk", days=days * 2) if interval == "1d" else {}
+    tf_list = [t.strip() for t in trend_filter.split(",") if t.strip()] or None
+
+    # Always use locally stored data — read directly from data_store
+    stored = list_stored(interval)
+    if not stored:
+        return jsonify({"results": [], "count": 0,
+                        "error": f"No data stored for interval '{interval}'. Go to Data Fetch page first."})
+
+    data_d = {}
+    for item in stored:
+        sym = item["symbol"]
+        df  = load_stored_df(sym, interval)
+        if df is not None and not df.empty:
+            data_d[sym] = df
+
+    if not data_d:
+        return jsonify({"results": [], "count": 0})
 
     df_res = scan_watchlist(
-        tickers=list(data_d.keys()), data_dict=data_d,
-        weekly_dict=weekly_d or None, order=order,
-        direction=direction, min_confluence=min_conf,
+        tickers=list(data_d.keys()),
+        data_dict=data_d,
+        order=order,
+        zone_lookback=zone_lookback,
+        direction=direction,
+        trend_filter=tf_list,
+        legout_mult=legout_mult,
     )
     if df_res.empty:
         return jsonify({"results": [], "count": 0})
@@ -161,9 +181,18 @@ def scan():
     return jsonify({"results": records, "count": len(records)})
 
 
+@app.route("/api/symbols")
+def symbols():
+    interval = request.args.get("interval", "1d")
+    items    = list_stored(interval)
+    syms     = sorted([it["symbol"] for it in items])
+    return jsonify({"symbols": syms, "count": len(syms)})
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Chart data
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @app.route("/api/chart/<path:ticker>")
 def chart_data(ticker):
@@ -171,8 +200,11 @@ def chart_data(ticker):
     days     = int(request.args.get("days",  300))
     order    = int(request.args.get("order", 5))
 
-    df = fetch_ohlcv(ticker, interval=interval, days=days)
-    if df.empty:
+    # Try local store first (handles both RELIANCE and RELIANCE.NS)
+    df = load_stored_df(ticker, interval)
+    if df is None or df.empty:
+        df = fetch_ohlcv(ticker, interval=interval, days=days)
+    if df is None or df.empty:
         return jsonify({"error": f"No data for {ticker}"}), 404
 
     pvts  = extrems(df, order=order)
@@ -386,9 +418,7 @@ def fetch_stream():
 
             yield _sse({"type": "info", "message": "Downloading instrument master…"})
             try:
-                # exch    = tuple(e.strip() for e in universe_str.split(","))
-                exchange_map = {"NSE_EQ": "NSE", "BSE_EQ": "BSE", "NSE": "NSE", "BSE": "BSE"}
-                exch = tuple(exchange_map.get(e.strip(), e.strip()) for e in universe_str.split(","))
+                exch    = tuple(e.strip() for e in universe_str.split(","))
                 instr   = get_eq_instruments(exch)
                 keys    = instr["instrument_key"].tolist()
                 yield _sse({"type": "info", "message": f"Found {len(keys)} instruments in {universe_str}"})

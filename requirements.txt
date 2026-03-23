@@ -10,3 +10,4 @@ joblib>=1.3
 nbformat>=5.9
 ipykernel>=6.0
 tqdm>=4.66
+upstox-python-sdk

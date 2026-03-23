@@ -1,108 +1,133 @@
 """
-scanner.py  –  Multi-stock zone + trend scanner
-=================================================
-Runs buy_zone, trend detection, and confluence scoring across
-a watchlist and returns a ranked DataFrame of setups.
+scanner.py  –  Zone finder + trend filter
+==========================================
+Logic:
+  1. Detect trend using pivot engine (configurable order)
+  2. Filter: trend must match the selected trend label(s)
+  3. Filter: at least one buy/sell zone must exist in the last
+             `zone_lookback` bars
+  4. Return matching symbols sorted by zone recency (most recent first)
+
+No confluence scoring — results are purely structural.
 """
 
 from __future__ import annotations
 
 import traceback
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Set
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 import pandas as pd
 
-from algos.pivot_engine import extrems, detect_trend, compute_atr, tag_signals
-from algos.zones import buy_zone, sell_zone
-from algos.confluence import confluence_score, HTFContext
-from algos.patterns import detect_flag, detect_triangle, pivot_trend_strength
+from algos.pivot_engine import extrems, detect_trend, compute_atr
+from algos.patterns     import pivot_trend_strength
+from algos.zones        import buy_zone, sell_zone
 from data_fetch.data_fetch import fetch_ohlcv
+
+# All valid trend labels the UI can filter on
+ALL_TRENDS: List[str] = [
+    "strong_uptrend",
+    "continuous_uptrend",
+    "up",
+    "bullish_mitigation",
+    "semi-up",
+    "weakening_uptrend",
+    "consolidate",
+    "flat_consolidation",
+    "deep_consolidation",
+    "sw",
+    "expanding_structure",
+    "weakening_downtrend",
+    "down",
+    "continuous_downtrend",
+    "strong_downtrend",
+]
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Per-symbol analysis
 # ──────────────────────────────────────────────────────────────────────────────
 
+# REPLACE WITH:
 def analyse_symbol(
     ticker: str,
     df: pd.DataFrame,
-    df_weekly: Optional[pd.DataFrame] = None,
     order: int = 5,
-    zone_lookback_bars: int = 200,
+    zone_lookback: int = 20,
     direction: str = "buy",
+    trend_filter: Optional[Set[str]] = None,
+    legout_mult: float = 1.35,
 ) -> Optional[Dict[str, Any]]:
     """
-    Full analysis for one symbol.
-    Returns None if analysis fails or no setup found.
+    Analyse one symbol.
+
+    Returns a result dict if:
+      • trend matches trend_filter (or filter is None)
+      • at least one zone found in last zone_lookback bars
+
+    Returns None otherwise.
     """
     try:
-        if df is None or len(df) < 50:
+        if df is None or len(df) < max(50, order * 4):
             return None
 
-        # ATR
+        # ── Pivots + trend ────────────────────────────────────────────────
+        pvts     = extrems(df, order=order)
+        trend    = detect_trend(pvts)
+        strength = pivot_trend_strength(pvts)
+
+        # ── Trend filter ──────────────────────────────────────────────────
+        if trend_filter and trend not in trend_filter:
+            return None
+
+        # ── ATR ───────────────────────────────────────────────────────────
         atr_series = compute_atr(df)
         atr_val    = float(atr_series.iloc[-1])
         close      = float(df["Close"].iloc[-1])
-        atr_pct    = atr_val / close * 100
+        atr_pct    = round(atr_val / close * 100, 2)
 
-        # Pivots & trend
-        pvts  = extrems(df, order=order, min_strength_atr_mult=0.3)
-        trend = detect_trend(pvts)
-        strength = pivot_trend_strength(pvts)
+        # ── Zone detection in last zone_lookback bars ─────────────────────
+        start_idx = max(0, len(df) - zone_lookback)
 
-        # HTF context
-        htf = None
-        if df_weekly is not None and len(df_weekly) >= 20:
-            try:
-                htf = HTFContext(df_weekly, df)
-            except Exception:
-                pass
-
-        # Confluence score
-        cscore = confluence_score(df, order=order, htf=htf, direction=direction)
-
-        # Zone detection (last zone_lookback_bars)
-        start_idx = max(0, len(df) - zone_lookback_bars)
         if direction == "buy":
-            zones, htf_flag = buy_zone(df, start_idx, "NA")
+            zones, _ = buy_zone(df, start_idx, "NA", legout_strength_mult=legout_mult)
         else:
-            zones = sell_zone(df, start_idx)
-            htf_flag = 0
+            zones = sell_zone(df, start_idx, legout_strength_mult=legout_mult)
 
         if not zones:
             return None
 
-        # Most recent zone
-        last_zone = zones[-1]
-        legin_ts  = str(last_zone[0])
-        legout_ts = str(last_zone[1])
+        # ── Zone details (most recent zone) ───────────────────────────────
+        last_zone  = zones[-1]
+        legin_ts   = pd.Timestamp(last_zone[0])
+        legout_ts  = pd.Timestamp(last_zone[1])
+        # Use actual base high/low (now returned by zone scanner)
+        zone_high  = round(float(last_zone[2]), 2) if len(last_zone) > 2 else round(close, 2)
+        zone_low   = round(float(last_zone[3]), 2) if len(last_zone) > 3 else round(close * 0.99, 2)
 
-        # Pattern flags
-        flag_pattern     = detect_flag(df, order=order)
-        triangle_pattern = detect_triangle(df, order=order)
+        # Zone recency: bars ago from end of df
+        try:
+            legin_bar_idx = df.index.get_indexer([legin_ts], method="nearest")[0]
+            bars_ago      = len(df) - 1 - legin_bar_idx
+        except Exception:
+            bars_ago = zone_lookback
 
         return {
             "ticker":          ticker,
             "close":           round(close, 2),
             "trend":           trend,
-            "trend_score":     cscore["trend_score"],
-            "confluence":      cscore["score"],
-            "zone_score":      cscore["zone_score"],
-            "htf_score":       cscore["htf_score"],
-            "vol_score":       cscore["vol_score"],
-            "atr":             round(atr_val, 2),
-            "atr_pct":         round(atr_pct, 2),
-            "zones_count":     len(zones),
-            "last_zone_legin": legin_ts,
-            "last_zone_legout":legout_ts,
-            "htf_flag":        htf_flag,
-            "flag_pattern":    flag_pattern,
-            "triangle":        triangle_pattern,
             "trend_strength":  strength["classification"],
-            "strength_score":  round(strength["score"], 4),
+            "atr":             round(atr_val, 2),
+            "atr_pct":         atr_pct,
+            "zones_count":     len(zones),
+            "zone_high":       zone_high,
+            "zone_low":        zone_low,
+            "zone_legin_ts":   int(legin_ts.timestamp()),
+            "zone_legout_ts":  int(legout_ts.timestamp()),
+            "bars_ago":        bars_ago,
             "pivot_count":     len(pvts),
+            "direction":       direction,
         }
 
     except Exception:
@@ -114,66 +139,58 @@ def analyse_symbol(
 # Batch scanner
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def scan_watchlist(
     tickers: List[str],
     data_dict: Dict[str, pd.DataFrame],
-    weekly_dict: Optional[Dict[str, pd.DataFrame]] = None,
     order: int = 5,
+    zone_lookback: int = 20,
     direction: str = "buy",
-    min_confluence: float = 0.45,
+    trend_filter: Optional[List[str]] = None,
+    legout_mult: float = 1.35,
     max_workers: int = 6,
 ) -> pd.DataFrame:
     """
-    Scan multiple symbols and return ranked results.
+    Scan multiple symbols.
 
     Parameters
     ----------
-    tickers         : list of ticker strings
-    data_dict       : {ticker: daily_df}
-    weekly_dict     : {ticker: weekly_df}  (optional, for HTF context)
-    order           : pivot order
-    direction       : "buy" | "sell"
-    min_confluence  : filter out scores below this
-    max_workers     : thread pool size
+    tickers       : list of ticker strings
+    data_dict     : {ticker: df}
+    order         : pivot look-left / look-right bars
+    zone_lookback : only find zones in last N bars
+    direction     : 'buy' | 'sell'
+    trend_filter  : list of trend labels to include (None = all)
     """
+    tf_set = set(trend_filter) if trend_filter else None
     results = []
 
     def _analyse(ticker: str):
-        df      = data_dict.get(ticker)
-        df_wkly = weekly_dict.get(ticker) if weekly_dict else None
-        return analyse_symbol(ticker, df, df_wkly, order=order, direction=direction)
+        df = data_dict.get(ticker)
+        return analyse_symbol(
+            ticker, df,
+            order=order,
+            zone_lookback=zone_lookback,
+            direction=direction,
+            trend_filter=tf_set,
+            legout_mult=legout_mult,
+        )
 
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
         futures = {ex.submit(_analyse, t): t for t in tickers}
         for fut in as_completed(futures):
-            res = fut.result()
-            if res and res["confluence"] >= min_confluence:
-                results.append(res)
+            try:
+                res = fut.result()
+                if res:
+                    results.append(res)
+            except Exception:
+                pass
 
     if not results:
         return pd.DataFrame()
 
     df_out = pd.DataFrame(results)
-    df_out.sort_values("confluence", ascending=False, inplace=True)
+    # Sort by zone recency: most recent zone first (lowest bars_ago)
+    df_out.sort_values("bars_ago", ascending=True, inplace=True)
     df_out.reset_index(drop=True, inplace=True)
     return df_out
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Live single-stock fetch + analyse
-# ──────────────────────────────────────────────────────────────────────────────
-
-def quick_scan(
-    ticker: str,
-    interval: str = "1d",
-    days: int = 500,
-    order: int = 5,
-    direction: str = "buy",
-) -> Optional[Dict[str, Any]]:
-    """Fetch fresh data and analyse a single ticker."""
-    df = fetch_ohlcv(ticker, interval=interval, days=days)
-    if df.empty:
-        return None
-    df_wkly = fetch_ohlcv(ticker, interval="1wk", days=days * 2)
-    return analyse_symbol(ticker, df, df_wkly if not df_wkly.empty else None,
-                          order=order, direction=direction)

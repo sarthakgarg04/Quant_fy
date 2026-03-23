@@ -19,7 +19,7 @@ import datetime as dt
 
 from algos.pivot_engine import compute_atr
 
-ZoneResult = List[List]   # [[legin_ts, legout_ts], ...]
+ZoneResult = List[List]   # [[legin_ts, legout_ts, zone_high, zone_low], ...]
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -77,8 +77,10 @@ def _zone_scanner(
 
         # ── 2. Base candles ────────────────────────────────────────────────
         base_count = 0
-        j = i + 1
-        in_base = True
+        j          = i + 1
+        in_base    = True
+        base_high  = high[i]   # start with legin candle
+        base_low   = low[i]
 
         while j < min(i + max_base_candles + 2, n - 1) and in_base:
             # EOD filter
@@ -103,7 +105,9 @@ def _zone_scanner(
 
             if in_zone:
                 base_count += 1
-                threshold = max(threshold, high[j])
+                threshold  = max(threshold,  high[j])
+                base_high  = max(base_high,  high[j])
+                base_low   = min(base_low,   low[j])
                 j += 1
             else:
                 in_base = False
@@ -137,7 +141,12 @@ def _zone_scanner(
             )
 
         if legout_ok:
-            result.append([df.index[legin_idx], df.index[j]])
+            result.append([
+                df.index[legin_idx],   # legin timestamp
+                df.index[j],           # legout timestamp
+                round(float(base_high), 4),   # top of zone
+                round(float(base_low),  4),   # bottom of zone
+            ])
             i = j + 1
         else:
             i = i + 1
@@ -165,6 +174,7 @@ def buy_zone(
     resist,                   # "NA" or [resist_level, ..., atr_at_resist]
     ztype: str = "rbr",       # "rbr" | "dbr"
     multiplier: float = 1.0,  # overall scaling for all ATR thresholds
+    legout_strength_mult: float = 1.35, 
 ) -> Tuple[ZoneResult, int]:
     """
     Detect bullish demand zones.
@@ -180,7 +190,7 @@ def buy_zone(
         ztype=ztype,
         legin_mult=multiplier,
         base_mult=0.55 * multiplier,
-        legout_mult=1.35 * multiplier,
+        legout_mult=legout_strength_mult * multiplier,
         legout_strength=1.0,
         max_base_candles=5,
         legout_wick_pct=0.25,
@@ -199,6 +209,7 @@ def sell_zone(
     df: pd.DataFrame,
     start_idx: int,
     multiplier: float = 1.0,
+    legout_strength_mult: float = 1.35,
 ) -> ZoneResult:
     """Detect bearish supply zones."""
     df = _prepare_df(df)
@@ -209,7 +220,7 @@ def sell_zone(
         ztype="dbd",
         legin_mult=0.9 * multiplier,
         base_mult=0.45 * multiplier,
-        legout_mult=1.5 * multiplier,
+        legout_mult=legout_strength_mult * multiplier,
         legout_strength=1.1,
         max_base_candles=7,
         legout_wick_pct=0.99,  # not checked for sell

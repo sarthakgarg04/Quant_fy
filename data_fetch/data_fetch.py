@@ -186,13 +186,24 @@ def store_df(symbol: str, interval: str, df: pd.DataFrame) -> None:
     df.to_parquet(_store_path(symbol, interval))
 
 
+# REPLACE WITH:
 def load_stored_df(symbol: str, interval: str) -> Optional[pd.DataFrame]:
+    # Try as-is first
     p = _store_path(symbol, interval)
     if p.exists():
         try:
             return pd.read_parquet(p)
         except Exception:
             pass
+    # Strip exchange suffix (.NS, .BO) — files stored without suffix
+    sym2 = symbol.replace(".NS", "").replace(".BO", "").replace(".BSE", "")
+    if sym2 != symbol:
+        p2 = _store_path(sym2, interval)
+        if p2.exists():
+            try:
+                return pd.read_parquet(p2)
+            except Exception:
+                pass
     return None
 
 
@@ -205,6 +216,7 @@ def _is_fresh(cached: Optional[pd.DataFrame], interval: str) -> bool:
     return age_days <= stale
 
 
+# REPLACE WITH:
 def list_stored(interval: Optional[str] = None) -> List[Dict]:
     results = []
     dirs = [interval] if interval else [
@@ -218,9 +230,11 @@ def list_stored(interval: Optional[str] = None) -> List[Dict]:
         for f in sorted(folder.glob("*.parquet")):
             try:
                 df  = pd.read_parquet(f)
-                sym = f.stem[: -(len(itv) + 1)].replace("_", ".", 1)
+                # Filename is e.g. RELIANCE_1d.parquet or BAJAJ_AUTO_1d.parquet
+                # Strip the _interval suffix to get the symbol as stored
+                sym = f.stem[: -(len(itv) + 1)]   # e.g. "RELIANCE" or "BAJAJ_AUTO"
                 results.append({
-                    "symbol":    sym,
+                    "symbol":    sym,          # raw stored name, no .NS
                     "interval":  itv,
                     "rows":      len(df),
                     "last_date": str(df.index[-1].date()) if len(df) else "–",
@@ -229,7 +243,6 @@ def list_stored(interval: Optional[str] = None) -> List[Dict]:
             except Exception:
                 pass
     return results
-
 
 def delete_stored(symbol: str, interval: str) -> bool:
     p = _store_path(symbol, interval)
