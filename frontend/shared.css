@@ -1,0 +1,241 @@
+/* shared.css – global design system for all QuantScanner pages */
+
+:root {
+  --bg:      #0d0f12;
+  --surface: #161a20;
+  --s2:      #1e2530;
+  --s3:      #252d3a;
+  --border:  #2a3040;
+  --text:    #e2e8f0;
+  --muted:   #8892a0;
+  --accent:  #3b82f6;
+  --green:   #22c55e;
+  --red:     #ef4444;
+  --amber:   #f59e0b;
+  --purple:  #a78bfa;
+  --r:       6px;
+  --r2:      8px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow: hidden;
+}
+
+/* ── Nav ──────────────────────────────────────────────────────────── */
+#qs-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 20px;
+  height: 50px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 200;
+  flex-shrink: 0;
+}
+#qs-nav .logo {
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  margin-right: 16px;
+  letter-spacing: .3px;
+  white-space: nowrap;
+}
+#qs-nav a {
+  padding: 5px 13px;
+  border-radius: var(--r);
+  text-decoration: none;
+  color: var(--muted);
+  font-size: 13px;
+  transition: background .12s, color .12s;
+  white-space: nowrap;
+}
+#qs-nav a:hover  { background: var(--s2); color: var(--text); }
+#qs-nav a.active { background: var(--s2); color: var(--text); font-weight: 500; }
+#qs-nav .spacer  { flex: 1; }
+.badge {
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 99px;
+  white-space: nowrap;
+}
+
+/* ── Form controls ─────────────────────────────────────────────────── */
+.ctrl {
+  background: var(--s2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 6px 10px;
+  font-size: 13px;
+  outline: none;
+  transition: border-color .12s;
+}
+.ctrl:focus { border-color: var(--accent); }
+select.ctrl  { cursor: pointer; }
+
+/* ── Buttons ───────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 16px;
+  border-radius: var(--r);
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background .12s, opacity .12s;
+  white-space: nowrap;
+}
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover:not(:disabled) { background: #2563eb; }
+.btn-danger  { background: var(--red); color: #fff; }
+.btn-danger:hover:not(:disabled)  { background: #dc2626; }
+.btn-ghost   { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+.btn-ghost:hover:not(:disabled)   { color: var(--text); border-color: var(--muted); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+
+/* ── Cards / surfaces ──────────────────────────────────────────────── */
+.card {
+  background: var(--s2);
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  padding: 14px;
+}
+
+/* ── Trend badges ──────────────────────────────────────────────────── */
+.tbadge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.badge-up { background: #14532d; color: #86efac; }
+.badge-dn { background: #7f1d1d; color: #fca5a5; }
+.badge-co { background: #292524; color: #a8a29e; }
+
+/* ── Score bar ─────────────────────────────────────────────────────── */
+.score-bar { display: flex; align-items: center; gap: 5px; }
+.score-track { flex: 1; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+.score-fill  { height: 100%; border-radius: 2px; }
+
+/* ── Stat grid ─────────────────────────────────────────────────────── */
+.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.stat {
+  background: var(--surface);
+  border-radius: var(--r);
+  padding: 8px 10px;
+}
+.stat-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+.stat-value { font-size: 13px; font-weight: 600; margin-top: 3px; }
+
+/* ── Conf bar group ────────────────────────────────────────────────── */
+.conf-bar { margin-bottom: 7px; }
+.conf-row { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+.conf-track { height: 5px; background: var(--border); border-radius: 3px; overflow: hidden; }
+.conf-fill  { height: 100%; border-radius: 3px; }
+
+/* ── Table ─────────────────────────────────────────────────────────── */
+.data-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.data-table th {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+}
+.data-table td { padding: 6px 8px; border-bottom: 1px solid rgba(42,48,64,.5); }
+.data-table tr:last-child td { border: none; }
+.data-table tr:hover td { background: rgba(255,255,255,.02); }
+.pos { color: var(--green); }
+.neg { color: var(--red); }
+
+/* ── Divider ────────────────────────────────────────────────────────── */
+.divider { height: 1px; background: var(--border); flex-shrink: 0; }
+
+/* ── Loading states ─────────────────────────────────────────────────── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--muted);
+  height: 100%;
+  min-height: 120px;
+  text-align: center;
+}
+.empty-icon { font-size: 28px; }
+.spin {
+  width: 24px; height: 24px;
+  border: 2.5px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: qs-spin .7s linear infinite;
+}
+.spin-lg { width: 36px; height: 36px; border-width: 3px; }
+@keyframes qs-spin { to { transform: rotate(360deg); } }
+
+/* ── TF button group ────────────────────────────────────────────────── */
+.tf-group { display: flex; gap: 3px; }
+.tf-btn {
+  padding: 3px 10px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+  transition: all .12s;
+}
+.tf-btn:hover  { color: var(--text); }
+.tf-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* ── Panel label ────────────────────────────────────────────────────── */
+.panel-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .6px;
+}
+
+/* ── Progress bar ───────────────────────────────────────────────────── */
+.progress-bar {
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width .3s ease;
+}
+
+/* ── Scrollbar ──────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }

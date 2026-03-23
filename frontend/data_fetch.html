@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Data Fetch – QuantScanner</title>
+<link rel="stylesheet" href="/qs-design.css">
+<script src="/qs-shared.js"></script>
+<style>
+.main    { display:flex; height:calc(100vh - var(--nav-h)); overflow:hidden; }
+.left    { width:360px; background:var(--surface); border-right:1px solid var(--border); display:flex; flex-direction:column; overflow-y:auto; flex-shrink:0; }
+.right   { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+
+.lsec   { padding:14px 16px; border-bottom:1px solid var(--border); }
+
+.auth-box   { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:8px; background:var(--surface2); border:1px solid var(--border); transition:border-color .2s; }
+.auth-icon  { width:34px; height:34px; border-radius:50%; background:var(--surface3); display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0; }
+.auth-name  { font-weight:600; font-size:13px; }
+.auth-sub   { font-size:11px; color:var(--muted); margin-top:1px; }
+
+.source-toggle { display:flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+.src-btn {
+  flex:1; padding:7px; border:none; background:transparent; color:var(--muted);
+  font-size:13px; font-weight:600; font-family:var(--font); cursor:pointer; transition:all .15s;
+}
+.src-btn.active { background:var(--accent); color:#fff; }
+
+.tf-pills { display:flex; flex-wrap:wrap; gap:6px; }
+.tf-pill  {
+  padding:5px 14px; border-radius:6px; border:1px solid var(--border);
+  background:var(--surface2); color:var(--muted); cursor:pointer;
+  font-size:12px; font-weight:600; font-family:var(--font); transition:all .15s;
+}
+.tf-pill:hover  { border-color:var(--accent); color:var(--text); }
+.tf-pill.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+
+.prog-bar-outer { height:7px; background:var(--border); border-radius:4px; overflow:hidden; margin:8px 0; }
+.prog-bar-inner { height:100%; border-radius:4px; background:var(--accent); transition:width .3s; width:0%; }
+
+.prog-log {
+  font-size:11px; font-family:monospace; line-height:1.7;
+  color:var(--muted); overflow-y:auto; max-height:160px;
+  background:var(--surface2); border-radius:6px; padding:8px 10px;
+  border:1px solid var(--border);
+}
+.log-ok  { color:var(--green); }
+.log-err { color:var(--red); }
+.log-inf { color:var(--amber); }
+
+/* Store browser */
+.store-header { padding:12px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:var(--surface); flex-shrink:0; }
+.store-stats  { display:flex; gap:24px; padding:10px 18px; border-bottom:1px solid var(--border); background:var(--surface2); flex-shrink:0; }
+.ss-item      { }
+.ss-l { font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
+.ss-v { font-size:14px; font-weight:700; margin-top:2px; }
+.store-scroll { flex:1; overflow-y:auto; }
+
+.store-table  { width:100%; border-collapse:collapse; }
+.store-table thead th {
+  padding:8px 16px; text-align:left; font-size:10px; font-weight:700;
+  color:var(--muted); text-transform:uppercase; letter-spacing:.5px;
+  border-bottom:1px solid var(--border); background:var(--surface2);
+  position:sticky; top:0; z-index:1;
+}
+.store-table tbody td { padding:8px 16px; border-bottom:1px solid var(--border)44; font-size:12px; }
+.store-table tbody tr:hover td { background:var(--surface2); }
+
+.del-btn { padding:2px 8px; border-radius:4px; border:1px solid var(--border); background:transparent; color:var(--red); font-size:11px; cursor:pointer; }
+.del-btn:hover { background:#7f1d1d22; border-color:var(--red); }
+
+.itv-tab { padding:4px 12px; border-radius:6px; border:1px solid var(--border); background:transparent; color:var(--muted); font-size:12px; cursor:pointer; font-family:var(--font); white-space:nowrap; }
+.itv-tab.active { background:var(--surface3); color:var(--text); border-color:var(--border2); }
+
+.token-area { width:100%; font-family:monospace; font-size:11px; resize:vertical; min-height:65px; }
+</style>
+</head>
+<body>
+<nav class="qs-nav" id="qs-nav"></nav>
+
+<div class="main">
+
+  <!-- ══ LEFT: controls ══════════════════════════════════════════════════ -->
+  <div class="left">
+
+    <!-- Auth -->
+    <div class="lsec">
+      <div class="sec-title" style="margin-bottom:10px">Upstox Authentication</div>
+      <div class="auth-box" id="auth-box">
+        <div class="auth-icon" id="auth-icon">🔒</div>
+        <div>
+          <div class="auth-name"  id="auth-name">Not authenticated</div>
+          <div class="auth-sub"   id="auth-sub">Token required for Upstox source</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
+        <button class="btn btn-primary btn-sm" onclick="doOAuth()">🔑 OAuth Login</button>
+        <button class="btn btn-ghost btn-sm" onclick="togglePaste()">Paste Token</button>
+        <button class="btn btn-danger btn-sm" id="logout-btn" style="display:none" onclick="clearToken()">Logout</button>
+      </div>
+      <div id="paste-area" style="display:none;margin-top:10px">
+        <textarea id="token-inp" class="ctrl token-area" placeholder="Paste Upstox access_token…"></textarea>
+        <button class="btn btn-primary btn-sm" style="margin-top:6px;width:100%" onclick="pasteToken()">💾 Save Token</button>
+      </div>
+    </div>
+
+    <!-- Source -->
+    <div class="lsec">
+      <div class="sec-title" style="margin-bottom:8px">Data Source</div>
+      <div class="source-toggle">
+        <button class="src-btn active" id="src-up" onclick="setSource('upstox')">Upstox API</button>
+        <button class="src-btn"        id="src-yf" onclick="setSource('yfinance')">yfinance</button>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:6px" id="src-hint">
+        Primary source. Requires valid Upstox token.
+      </div>
+    </div>
+
+    <!-- Timeframe -->
+    <div class="lsec">
+      <div class="sec-title" style="margin-bottom:8px">Timeframe</div>
+      <div class="tf-pills" id="tf-pills">
+        <button class="tf-pill active" data-tf="1d"  onclick="selTf(this)">Daily 1D</button>
+        <button class="tf-pill"        data-tf="1wk" onclick="selTf(this)">Weekly 1W</button>
+        <button class="tf-pill"        data-tf="1h"  onclick="selTf(this)">1 Hour</button>
+        <button class="tf-pill"        data-tf="4h"  onclick="selTf(this)">4 Hour</button>
+        <button class="tf-pill"        data-tf="15m" onclick="selTf(this)">15 Min</button>
+        <button class="tf-pill"        data-tf="5m"  onclick="selTf(this)">5 Min</button>
+      </div>
+    </div>
+
+    <!-- Universe / watchlist -->
+    <div class="lsec" id="univ-sec">
+      <div class="sec-title" style="margin-bottom:6px">Universe (Upstox)</div>
+      <select id="univ-sel" class="ctrl" style="width:100%">
+        <option value="NSE_EQ">NSE Equity</option>
+        <option value="BSE_EQ">BSE Equity</option>
+        <option value="NSE_EQ,BSE_EQ">NSE + BSE</option>
+      </select>
+    </div>
+
+    <div class="lsec" id="wl-sec" style="display:none">
+      <div class="sec-title" style="margin-bottom:6px">Watchlist (yfinance)</div>
+      <select id="wl-sel" class="ctrl" style="width:100%">
+        <option value="nifty50">Nifty 50</option>
+        <option value="next50">Nifty Next 50</option>
+        <option value="midcap">Midcap</option>
+        <option value="all_nifty">All Nifty</option>
+      </select>
+    </div>
+
+    <!-- Force refresh -->
+    <div class="lsec" style="display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div class="sec-title">Force Re-fetch</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">Bypass local cache</div>
+      </div>
+      <input type="checkbox" id="force-chk" style="width:17px;height:17px;cursor:pointer;accent-color:var(--accent)">
+    </div>
+
+    <!-- Fetch button -->
+    <div style="padding:14px 16px;border-bottom:1px solid var(--border)">
+      <button class="btn btn-primary" style="width:100%;padding:9px" id="fetch-btn" onclick="startFetch()">
+        ▶ Start Fetch
+      </button>
+    </div>
+
+    <!-- Progress -->
+    <div style="padding:14px 16px;flex:1">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <div class="sec-title" id="prog-title">Ready</div>
+        <div id="prog-count" style="font-size:11px;color:var(--muted)"></div>
+      </div>
+      <div class="prog-bar-outer"><div class="prog-bar-inner" id="prog-bar"></div></div>
+      <div class="prog-log" id="prog-log" style="margin-top:8px"></div>
+    </div>
+
+  </div><!-- left -->
+
+  <!-- ══ RIGHT: local store browser ══════════════════════════════════════ -->
+  <div class="right">
+    <div class="store-header">
+      <span style="font-size:15px;font-weight:700">📦 Local Data Store</span>
+      <div style="margin-left:auto;display:flex;gap:5px;flex-wrap:wrap" id="itv-tabs"></div>
+      <button class="btn btn-ghost btn-sm" onclick="refreshStore()">↻ Refresh</button>
+    </div>
+
+    <div class="store-stats">
+      <div class="ss-item"><div class="ss-l">Total Symbols</div><div class="ss-v" id="ss-tot">–</div></div>
+      <div class="ss-item"><div class="ss-l">Storage Used</div><div class="ss-v" id="ss-mb">–</div></div>
+      <div class="ss-item"><div class="ss-l">Timeframes</div><div class="ss-v" id="ss-ivs">–</div></div>
+      <div class="ss-item"><div class="ss-l">Cache Path</div><div class="ss-v" style="font-size:11px;font-family:monospace">data_store/</div></div>
+    </div>
+
+    <div class="store-scroll" id="store-body">
+      <div class="empty-state" style="padding:60px 0">
+        <div class="empty-icon">🗄</div>
+        <div class="empty-text">No data fetched yet</div>
+        <div class="empty-sub">Use the controls on the left to fetch data</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+renderNav('data');
+
+const API    = '/api';
+let source   = 'upstox';
+let curTf    = '1d';
+let storeFilter = null;
+let fetchES  = null;
+let storeAll = [];
+
+// ── Restore persisted state ────────────────────────────────────────────
+(function restore() {
+  const s = loadState();
+  if (s.data_src) setSource(s.data_src, false);
+  if (s.data_tf)  selectTfVal(s.data_tf);
+  if (s.data_univ) G('univ-sel').value = s.data_univ;
+  if (s.data_wl)   G('wl-sel').value   = s.data_wl;
+})();
+
+['univ-sel','wl-sel'].forEach(id => {
+  G(id).addEventListener('change', () => saveState({ data_univ: G('univ-sel').value, data_wl: G('wl-sel').value }));
+});
+
+function G(id) { return document.getElementById(id); }
+
+// ── Auth ───────────────────────────────────────────────────────────────
+async function checkAuth() {
+  try {
+    const r = await fetch(`${API}/data/token/check`);
+    const d = await r.json();
+    const box = G('auth-box');
+    if (d.valid) {
+      G('auth-icon').textContent = '✅';
+      G('auth-name').textContent = d.name  || 'Authenticated';
+      G('auth-sub').textContent  = d.email || 'Upstox token valid';
+      box.style.borderColor = 'var(--green)';
+      G('logout-btn').style.display = 'inline-flex';
+    } else {
+      G('auth-icon').textContent = '🔒';
+      G('auth-name').textContent = 'Not authenticated';
+      G('auth-sub').textContent  = d.reason === 'expired' ? 'Token expired – re-authenticate' : 'Token required for Upstox';
+      box.style.borderColor = 'var(--border)';
+      G('logout-btn').style.display = 'none';
+    }
+  } catch(e) {}
+}
+
+function doOAuth() {
+  // Open the auth URL returned by the API
+  fetch(`${API}/data/auth/start`)
+    .then(r => r.json())
+    .then(d => {
+      if (d.auth_url) window.open(d.auth_url, '_blank', 'width=600,height=700');
+      // Poll every 3s for up to 2min
+      const poll = setInterval(async () => {
+        const r2 = await fetch(`${API}/data/token/check`);
+        const d2 = await r2.json();
+        if (d2.valid) { clearInterval(poll); checkAuth(); }
+      }, 3000);
+      setTimeout(() => clearInterval(poll), 120000);
+    });
+}
+
+function togglePaste() {
+  const a = G('paste-area');
+  a.style.display = a.style.display === 'none' ? 'block' : 'none';
+}
+
+async function pasteToken() {
+  const t = G('token-inp').value.trim();
+  if (!t) { alert('Token is empty'); return; }
+  await fetch(`${API}/data/token/set`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({token:t}),
+  });
+  G('paste-area').style.display = 'none';
+  checkAuth();
+}
+
+async function clearToken() {
+  if (!confirm('Clear saved token?')) return;
+  await fetch(`${API}/data/token/clear`, {method:'POST'});
+  checkAuth();
+}
+
+// ── Source / TF ────────────────────────────────────────────────────────
+function setSource(src, persist=true) {
+  source = src;
+  G('src-up').classList.toggle('active', src==='upstox');
+  G('src-yf').classList.toggle('active', src==='yfinance');
+  G('univ-sec').style.display = src==='upstox'   ? 'block' : 'none';
+  G('wl-sec').style.display   = src==='yfinance' ? 'block' : 'none';
+  G('src-hint').textContent   = src==='upstox'
+    ? 'Primary source. Requires valid Upstox token.'
+    : 'Fallback source. No auth required.';
+  if (persist) saveState({data_src: src});
+}
+
+function selTf(btn) {
+  document.querySelectorAll('.tf-pill').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  curTf = btn.dataset.tf;
+  saveState({data_tf: curTf});
+}
+
+function selectTfVal(tf) {
+  const btn = document.querySelector(`.tf-pill[data-tf="${tf}"]`);
+  if (btn) selTf(btn);
+}
+
+// ── SSE fetch stream ───────────────────────────────────────────────────
+function startFetch() {
+  if (fetchES) { fetchES.close(); fetchES = null; }
+
+  const btn = G('fetch-btn');
+  btn.disabled = true; btn.textContent = '⏳ Fetching…';
+  G('prog-bar').style.width = '0%';
+  G('prog-log').innerHTML = '';
+  G('prog-count').textContent = '';
+  G('prog-title').textContent = 'Connecting…';
+
+  const params = new URLSearchParams({
+    tf:       curTf,
+    src:      source,
+    universe: G('univ-sel').value,
+    wl:       G('wl-sel').value,
+    force:    G('force-chk').checked.toString(),
+  });
+
+  fetchES = new EventSource(`${API}/data/fetch/stream?${params}`);
+
+  fetchES.onmessage = (ev) => {
+    const d = JSON.parse(ev.data);
+
+    if (d.type === 'progress') {
+      const p = Math.round(d.done / d.total * 100);
+      G('prog-bar').style.width = p + '%';
+      G('prog-count').textContent = `${d.done} / ${d.total}`;
+      G('prog-title').textContent = 'Fetching…';
+      addLog(`${d.ok ? '✓' : '✗'} ${d.symbol}`, d.ok ? 'log-ok' : 'log-err');
+
+    } else if (d.type === 'info') {
+      addLog(d.message, 'log-inf');
+
+    } else if (d.type === 'error') {
+      addLog('⚠ ' + d.message, 'log-err');
+      finish(`Error: ${d.message}`);
+
+    } else if (d.type === 'done') {
+      G('prog-bar').style.width = '100%';
+      addLog(`✅ Done — ${d.ok_count} saved, ${d.err_count} errors`, 'log-inf');
+      finish(`Done — ${d.ok_count} OK · ${d.err_count} errors`);
+      setTimeout(refreshStore, 800);
+    }
+  };
+
+  fetchES.onerror = () => { addLog('Connection closed', 'log-err'); finish('Error'); };
+}
+
+function finish(msg) {
+  G('prog-title').textContent = msg;
+  G('fetch-btn').disabled = false;
+  G('fetch-btn').textContent = '▶ Start Fetch';
+  if (fetchES) { fetchES.close(); fetchES = null; }
+}
+
+function addLog(msg, cls='') {
+  const log = G('prog-log');
+  const el = document.createElement('div');
+  if (cls) el.className = cls;
+  el.textContent = msg;
+  log.appendChild(el);
+  log.scrollTop = log.scrollHeight;
+  while (log.children.length > 300) log.removeChild(log.firstChild);
+}
+
+// ── Store browser ──────────────────────────────────────────────────────
+async function refreshStore() {
+  try {
+    const r = await fetch(`${API}/data/store`);
+    const d = await r.json();
+    storeAll = d.items || [];
+
+    G('ss-tot').textContent = d.total_symbols;
+    G('ss-mb').textContent  = d.total_size_mb + ' MB';
+    G('ss-ivs').textContent = Object.keys(d.by_interval||{}).join(', ') || '–';
+
+    const ivs = Object.keys(d.by_interval || {});
+    G('itv-tabs').innerHTML = ['all', ...ivs].map(iv => {
+      const cnt = iv === 'all' ? d.total_symbols : (d.by_interval[iv]||0);
+      const active = (iv === 'all' && !storeFilter) || storeFilter === iv;
+      return `<button class="itv-tab${active?' active':''}" onclick="filterStore('${iv}')">${iv==='all'?'All':iv} (${cnt})</button>`;
+    }).join('');
+
+    renderTable();
+  } catch(e) {}
+}
+
+function filterStore(iv) {
+  storeFilter = iv === 'all' ? null : iv;
+  document.querySelectorAll('.itv-tab').forEach(b => {
+    const bIv = b.textContent.split(' ')[0];
+    b.classList.toggle('active', bIv === iv);
+  });
+  renderTable();
+}
+
+function renderTable() {
+  const items = storeFilter ? storeAll.filter(r => r.interval === storeFilter) : storeAll;
+  const body  = G('store-body');
+  if (!items.length) {
+    body.innerHTML = `<div class="empty-state" style="padding:60px 0">
+      <div class="empty-icon">🗄</div>
+      <div class="empty-text">No data for this timeframe</div>
+    </div>`;
+    return;
+  }
+  body.innerHTML = `<table class="store-table">
+    <thead><tr>
+      <th>Symbol</th><th>Interval</th><th>Rows</th>
+      <th>Last Date</th><th>Size</th><th></th>
+    </tr></thead>
+    <tbody>${items.map(r => `<tr>
+      <td style="font-weight:600;font-family:monospace">${r.symbol}</td>
+      <td><span class="badge badge-info">${r.interval}</span></td>
+      <td>${(r.rows||0).toLocaleString()}</td>
+      <td style="color:var(--muted)">${r.last_date}</td>
+      <td style="color:var(--muted2)">${r.size_kb} KB</td>
+      <td><button class="del-btn" onclick="delSym('${r.symbol}','${r.interval}')">✕</button></td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+
+async function delSym(sym, interval) {
+  if (!confirm(`Delete ${sym} (${interval})?`)) return;
+  await fetch(`${API}/data/store/delete`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({symbol:sym, interval}),
+  });
+  refreshStore();
+}
+
+// ── Init ───────────────────────────────────────────────────────────────
+checkAuth();
+refreshStore();
+</script>
+</body>
+</html>

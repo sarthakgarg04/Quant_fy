@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scanner – QuantScanner</title>
+<link rel="stylesheet" href="/qs-design.css">
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<script src="/qs-shared.js"></script>
+<style>
+.main      { display:flex; height:calc(100vh - var(--nav-h)); overflow:hidden; }
+.sidebar   { width:390px; min-width:280px; background:var(--surface); border-right:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; }
+.controls  { padding:10px 14px; border-bottom:1px solid var(--border); display:flex; flex-wrap:wrap; gap:6px; }
+.list-hdr  { padding:6px 14px; border-bottom:1px solid var(--border); display:grid; grid-template-columns:1fr 70px 90px 68px; gap:4px; }
+.stock-list{ flex:1; overflow-y:auto; }
+
+.si {
+  padding:9px 14px; border-bottom:1px solid var(--border);
+  cursor:pointer; transition:background .1s;
+  display:grid; grid-template-columns:1fr 70px 90px 68px; gap:4px; align-items:center;
+}
+.si:hover  { background:var(--surface2); }
+.si.active { background:#1e2a3d; border-left:3px solid var(--accent); padding-left:11px; }
+.sname { font-weight:600; font-size:13px; }
+.smeta { font-size:10px; color:var(--muted); margin-top:1px; }
+.sprice{ text-align:right; font-weight:600; font-size:13px; }
+
+.chart-panel{ flex:1; display:flex; flex-direction:column; min-width:0; overflow:hidden; }
+.chart-hdr  { padding:10px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:var(--surface); flex-shrink:0; }
+.ct-ticker  { font-size:18px; font-weight:700; }
+.ct-price   { font-size:15px; color:var(--green); }
+#chart-wrap { flex:1; position:relative; min-height:0; }
+
+.detail-strip { padding:10px 14px; border-top:1px solid var(--border); background:var(--surface); display:none; flex-shrink:0; }
+.detail-grid  { display:grid; grid-template-columns:repeat(6,1fr); gap:8px; }
+.detail-cell  { }
+.dl { font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
+.dv { font-size:12px; font-weight:600; margin-top:2px; }
+</style>
+</head>
+<body>
+<nav class="qs-nav" id="qs-nav"></nav>
+
+<div class="main">
+  <!-- ── Sidebar ── -->
+  <div class="sidebar">
+    <div class="controls">
+      <select id="wl"   class="ctrl">
+        <option value="nifty50">Nifty 50</option>
+        <option value="next50">Next 50</option>
+        <option value="midcap">Midcap</option>
+        <option value="all_nifty">All Nifty</option>
+      </select>
+      <select id="dir"  class="ctrl">
+        <option value="buy">Buy Setups</option>
+        <option value="sell">Sell Setups</option>
+      </select>
+      <select id="itv"  class="ctrl">
+        <option value="1d">Daily</option>
+        <option value="1wk">Weekly</option>
+        <option value="1h">1 Hour</option>
+      </select>
+      <input  id="minc" type="number" class="ctrl" value="0.40" step="0.05" min="0" max="1" style="width:58px" title="Min confluence">
+      <button id="sbtn" class="btn btn-primary" onclick="runScan()">▶ Scan</button>
+    </div>
+
+    <div class="list-hdr">
+      <span class="sec-title">Stock</span>
+      <span class="sec-title" style="text-align:right">Price</span>
+      <span class="sec-title" style="text-align:center">Trend</span>
+      <span class="sec-title">Score</span>
+    </div>
+
+    <div class="stock-list" id="list">
+      <div class="empty-state">
+        <div class="empty-icon">📊</div>
+        <div class="empty-text">Press Scan to find setups</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Chart Panel ── -->
+  <div class="chart-panel">
+    <div class="chart-hdr">
+      <span class="ct-ticker" id="ct-t">–</span>
+      <span class="ct-price"  id="ct-p">–</span>
+      <span id="ct-tr" style="font-size:11px;padding:2px 10px;border-radius:99px;background:var(--surface3)">–</span>
+      <div class="tf-group" style="margin-left:auto">
+        <button class="tf-btn active" onclick="setChartTf('1d',this)">1D</button>
+        <button class="tf-btn" onclick="setChartTf('1wk',this)">1W</button>
+        <button class="tf-btn" onclick="setChartTf('1h',this)">1H</button>
+      </div>
+    </div>
+
+    <div class="legend-row">
+      <span class="leg-item"><span class="leg-dot" style="background:#ef4444"></span>Top pivot</span>
+      <span class="leg-item"><span class="leg-dot" style="background:#22c55e"></span>Bottom pivot</span>
+      <span class="leg-item"><span class="leg-dot" style="background:#22c55e;opacity:.5"></span>Buy zone</span>
+      <span class="leg-item"><span class="leg-dot" style="background:#ef4444;opacity:.5"></span>Sell zone</span>
+    </div>
+
+    <div id="chart-wrap">
+      <div class="empty-state" id="chart-empty">
+        <div class="empty-icon">📈</div>
+        <div class="empty-text">Select a stock to view chart</div>
+      </div>
+    </div>
+
+    <div class="metric-row" style="border-top:1px solid var(--border);background:var(--surface);flex-shrink:0">
+      <div class="metric-tile"><div class="metric-label">ATR %</div><div class="metric-value" id="m1">–</div></div>
+      <div class="metric-tile"><div class="metric-label">Trend Str.</div><div class="metric-value" id="m2">–</div></div>
+      <div class="metric-tile"><div class="metric-label">Zones</div><div class="metric-value" id="m3">–</div></div>
+      <div class="metric-tile"><div class="metric-label">HTF Flag</div><div class="metric-value" id="m4">–</div></div>
+      <div class="metric-tile"><div class="metric-label">Confluence</div><div class="metric-value" id="m5">–</div></div>
+    </div>
+
+    <div class="detail-strip" id="det">
+      <div class="detail-grid" id="dg"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+renderNav('scanner', `<span class="qs-nav-badge" id="cnt">0 setups</span>`);
+
+const API = '/api';
+let chart=null, cs=null, xtra=[], chartTf='1d', rows=[], activeRow=null;
+
+// ── Restore state ──────────────────────────────────────────────────────
+(function restoreControls() {
+  const s = loadState();
+  if (s.scanner_wl)   G('wl').value   = s.scanner_wl;
+  if (s.scanner_dir)  G('dir').value  = s.scanner_dir;
+  if (s.scanner_itv)  G('itv').value  = s.scanner_itv;
+  if (s.scanner_minc) G('minc').value = s.scanner_minc;
+  if (s.scanner_tf)   {
+    chartTf = s.scanner_tf;
+    document.querySelectorAll('.tf-btn').forEach(b => {
+      b.classList.toggle('active', b.textContent.toLowerCase().replace('w','wk') === s.scanner_tf);
+    });
+  }
+  if (s.scanner_rows?.length) {
+    rows = s.scanner_rows;
+    G('cnt').textContent = `${rows.length} setups`;
+    renderList(rows);
+    if (s.scanner_active) setTimeout(() => restoreActiveTicker(s.scanner_active), 300);
+  }
+})();
+
+async function restoreActiveTicker(ticker) {
+  const row = rows.find(r => r.ticker === ticker);
+  if (row) await selectStock(ticker, row, false);
+}
+
+// ── Save controls on change ────────────────────────────────────────────
+['wl','dir','itv','minc'].forEach(id => {
+  G(id).addEventListener('change', () => saveState({
+    scanner_wl: G('wl').value, scanner_dir: G('dir').value,
+    scanner_itv: G('itv').value, scanner_minc: G('minc').value,
+  }));
+});
+
+function G(id) { return document.getElementById(id); }
+
+// ── Chart ──────────────────────────────────────────────────────────────
+function initChart() {
+  const wrap = G('chart-wrap');
+  G('chart-empty').style.display = 'none';
+  if (chart) { try { chart.remove(); } catch(e){} }
+  xtra = [];
+  chart = createQSChart(wrap);
+  cs    = addCandleSeries(chart);
+}
+
+function renderChart(d) {
+  xtra.forEach(s => { try { chart.removeSeries(s); } catch(e){} });
+  xtra = [];
+  cs.setData(d.candles);
+  cs.setMarkers((d.pivots||[]).map(p => ({
+    time: p.time, size: 1,
+    position: p.type==='T' ? 'aboveBar' : 'belowBar',
+    color:    p.type==='T' ? '#ef4444'  : '#22c55e',
+    shape:    p.type==='T' ? 'arrowDown': 'arrowUp',
+  })));
+  // Buy zones
+  (d.buy_zones||[]).slice(-6).forEach(z => {
+    const s1 = addLineSeries(chart,'#22c55e',1.5,1);
+    s1.setData([{time:z.time_start,value:z.price_high},{time:z.time_end,value:z.price_high}]);
+    const s2 = addLineSeries(chart,'#22c55e44',1,3);
+    s2.setData([{time:z.time_start,value:z.price_low},{time:z.time_end,value:z.price_low}]);
+    xtra.push(s1,s2);
+  });
+  // Sell zones
+  (d.sell_zones||[]).slice(-6).forEach(z => {
+    const s1 = addLineSeries(chart,'#ef4444',1.5,1);
+    s1.setData([{time:z.time_start,value:z.price_low},{time:z.time_end,value:z.price_low}]);
+    xtra.push(s1);
+  });
+  chart.timeScale().fitContent();
+}
+
+async function selectStock(ticker, row, persist=true) {
+  activeRow = row;
+  document.querySelectorAll('.si').forEach(e => e.classList.remove('active'));
+  const el = document.querySelector(`.si[data-t="${ticker}"]`);
+  if (el) el.classList.add('active');
+
+  G('ct-t').textContent = ticker.replace('.NS','');
+  G('ct-p').textContent = row ? '₹' + (row.close||0).toLocaleString('en-IN') : '';
+  const tr = G('ct-tr');
+  tr.textContent = (row?.trend||'').replace(/_/g,' ');
+  tr.style.cssText = `font-size:11px;padding:2px 10px;border-radius:99px;${trendHeaderStyle(row?.trend)}`;
+
+  G('m1').textContent = row ? row.atr_pct+'%' : '–';
+  G('m2').textContent = row?.trend_strength || '–';
+  G('m3').textContent = row?.zones_count ?? '–';
+  G('m4').textContent = row ? (row.htf_flag ? '⚠ Yes':'No') : '–';
+  G('m5').textContent = row ? Math.round((row.confluence||0)*100)+'%' : '–';
+
+  if (!chart) initChart();
+  try {
+    const r = await fetch(`${API}/chart/${encodeURIComponent(ticker)}?interval=${chartTf}`);
+    const d = await r.json();
+    if (!d.error) renderChart(d);
+  } catch(e) {}
+
+  if (row) {
+    G('det').style.display = 'block';
+    G('dg').innerHTML = [
+      ['Pivots', row.pivot_count],
+      ['Trend Sc.', pct(row.trend_score)],
+      ['Zone Sc.', pct(row.zone_score)],
+      ['HTF Sc.', pct(row.htf_score)],
+      ['Vol Sc.', pct(row.vol_score)],
+      ['Flag', row.flag_pattern ? '✓':'–'],
+    ].map(([l,v]) => `<div class="detail-cell"><div class="dl">${l}</div><div class="dv">${v??'–'}</div></div>`).join('');
+  }
+
+  if (persist) saveState({ scanner_active: ticker });
+}
+
+function setChartTf(tf, btn) {
+  chartTf = tf;
+  document.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  saveState({ scanner_tf: tf });
+  if (activeRow) selectStock(activeRow.ticker, activeRow, false);
+}
+
+// ── Scan ───────────────────────────────────────────────────────────────
+async function runScan() {
+  const btn = G('sbtn');
+  btn.disabled = true; btn.textContent = '⏳ Scanning…';
+  G('list').innerHTML = '<div class="empty-state"><div class="spinner"></div><div class="empty-text">Fetching & analysing…</div></div>';
+  try {
+    const url = `${API}/scan?watchlist=${G('wl').value}&direction=${G('dir').value}&interval=${G('itv').value}&min_confluence=${G('minc').value}`;
+    const r   = await fetch(url);
+    const d   = await r.json();
+    rows      = d.results || [];
+    G('cnt').textContent = `${rows.length} setups`;
+    renderList(rows);
+    saveState({
+      scanner_rows: rows, scanner_active: null,
+      scanner_wl: G('wl').value, scanner_dir: G('dir').value,
+      scanner_itv: G('itv').value, scanner_minc: G('minc').value,
+    });
+  } catch(e) {
+    G('list').innerHTML = `<div class="empty-state"><div style="color:var(--red)">⚠ ${e.message}</div><div class="empty-sub">Is <code>python app.py</code> running?</div></div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = '▶ Scan';
+  }
+}
+
+function renderList(rs) {
+  const list = G('list');
+  if (!rs.length) {
+    list.innerHTML = '<div class="empty-state"><div class="empty-text">No setups — lower the min score</div></div>';
+    return;
+  }
+  list.innerHTML = rs.map((r,i) => {
+    const w = Math.round((r.confluence||0)*100);
+    return `<div class="si" data-t="${r.ticker}" data-i="${i}">
+      <div>
+        <div class="sname">${r.ticker.replace('.NS','')}</div>
+        <div class="smeta">${(r.trend||'').replace(/_/g,' ')} · ATR ${r.atr_pct||0}%</div>
+      </div>
+      <div class="sprice">₹${(r.close||0).toLocaleString('en-IN')}</div>
+      <div style="text-align:center">${trendBadge(r.trend)}</div>
+      <div class="score-bar">
+        <span class="score-num">${w}%</span>
+        <div class="score-track"><div class="score-fill" style="width:${w}%;background:${scoreColor(r.confluence||0)}"></div></div>
+      </div>
+    </div>`;
+  }).join('');
+  document.querySelectorAll('.si').forEach((el,i) => {
+    el.onclick = () => selectStock(rows[i].ticker, rows[i]);
+  });
+  // Restore active highlight
+  const s = loadState();
+  if (s.scanner_active) {
+    const el = document.querySelector(`.si[data-t="${s.scanner_active}"]`);
+    if (el) el.classList.add('active');
+  }
+}
+</script>
+</body>
+</html>
