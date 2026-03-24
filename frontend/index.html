@@ -11,13 +11,77 @@
 .main      { display:flex; height:calc(100vh - 50px); overflow:hidden; }
 
 /* ── Sidebar ── */
-.sidebar   { width:400px; min-width:300px; background:var(--surface); border-right:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; }
-
-.controls  { padding:12px 14px; border-bottom:1px solid var(--border); display:flex; flex-direction:column; gap:8px; }
-.ctrl-row  { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+.sidebar   { width:420px; min-width:320px; background:var(--surface); border-right:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; }
+.controls  { padding:12px 14px; border-bottom:1px solid var(--border); display:flex; flex-direction:column; gap:8px; overflow-y:auto; max-height:55vh; }
+.ctrl-row  { display:flex; gap:6px; align-items:flex-end; flex-wrap:wrap; }
 .ctrl-label{ font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; margin-bottom:2px; }
+.sec-divider { font-size:9px; color:var(--accent); text-transform:uppercase; letter-spacing:.8px; padding:4px 0 2px; border-top:1px solid var(--border); margin-top:4px; font-weight:700; }
 
-/* Trend multi-select */
+/* Multi-order section */
+.mo-section { background:var(--s2); border-radius:var(--r2); padding:10px; display:flex; flex-direction:column; gap:8px; border:1px solid var(--border); }
+.mo-row     { display:grid; grid-template-columns:70px 70px 1fr; gap:6px; align-items:end; }
+.mo-label   { font-size:10px; font-weight:700; padding:3px 7px; border-radius:4px; }
+.mo-low     { background:#134e4a; color:#99f6e4; }
+.mo-mid     { background:#1e3a5f; color:#93c5fd; }
+.mo-high    { background:#2e1065; color:#ddd6fe; }
+.mo-disabled{ opacity:.35; pointer-events:none; }
+
+/* Trend dropdown for multi-order */
+.trend-sel  { background:var(--s2); color:var(--text); border:1px solid var(--border); border-radius:var(--r); padding:5px 8px; font-size:11px; width:100%; outline:none; }
+.trend-sel:focus { border-color:var(--accent); }
+
+/* ── List ── */
+.list-hdr  { padding:6px 14px; border-bottom:1px solid var(--border); display:grid; grid-template-columns:1fr 70px 90px 60px; gap:4px; flex-shrink:0; }
+.list-hdr span { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; }
+.stock-list{ flex:1; overflow-y:auto; }
+
+/* Stock rows */
+.si {
+  border-bottom:1px solid var(--border); cursor:pointer;
+  transition:background .1s;
+}
+.si-main {
+  padding:9px 14px; display:grid;
+  grid-template-columns:1fr 70px 90px 60px; gap:4px; align-items:center;
+}
+.si:hover .si-main { background:var(--s2); }
+.si.active .si-main { background:#1a2640; border-left:3px solid var(--accent); padding-left:11px; }
+.si.expanded { background:var(--s2); }
+
+.sname  { font-weight:600; font-size:13px; }
+.smeta  { font-size:10px; color:var(--muted); margin-top:1px; }
+.sprice { text-align:right; font-weight:600; font-size:13px; }
+.szone  { font-size:10px; color:var(--green); text-align:right; }
+
+/* Expanded detail panel */
+.si-detail {
+  padding:10px 14px 12px;
+  border-top:1px solid var(--border);
+  display:none;
+  flex-direction:column;
+  gap:10px;
+  background:#0f1318;
+}
+.si.expanded .si-detail { display:flex; }
+
+.det-section { display:flex; flex-direction:column; gap:4px; }
+.det-title   { font-size:9px; color:var(--accent); text-transform:uppercase; letter-spacing:.6px; font-weight:700; margin-bottom:2px; }
+
+/* Multi-order breakdown bars */
+.mo-bar-row  { display:flex; align-items:center; gap:6px; margin-bottom:3px; }
+.mo-bar-lbl  { font-size:10px; width:52px; flex-shrink:0; }
+.mo-bar-trend{ font-size:10px; width:110px; flex-shrink:0; color:var(--text); }
+.mo-bar-track{ flex:1; height:6px; background:var(--border); border-radius:3px; overflow:hidden; }
+.mo-bar-fill { height:100%; border-radius:3px; }
+
+/* Metrics grid in detail */
+.det-grid    { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; }
+.det-tile    { background:var(--surface); border-radius:5px; padding:6px 8px; border:1px solid var(--border); }
+.det-tile-l  { font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; }
+.det-tile-v  { font-size:12px; font-weight:600; margin-top:2px; }
+.det-tile-s  { font-size:10px; color:var(--muted); margin-top:1px; }
+
+/* Trend multi-select (existing) */
 .trend-select-wrap { position:relative; }
 .trend-dropdown {
   position:absolute; top:calc(100% + 4px); left:0; right:0; z-index:200;
@@ -25,11 +89,7 @@
   max-height:260px; overflow-y:auto; display:none; box-shadow:0 8px 24px rgba(0,0,0,.4);
 }
 .trend-dropdown.open { display:block; }
-.trend-opt {
-  display:flex; align-items:center; gap:8px;
-  padding:7px 12px; cursor:pointer; font-size:12px;
-  transition:background .1s;
-}
+.trend-opt { display:flex; align-items:center; gap:8px; padding:7px 12px; cursor:pointer; font-size:12px; transition:background .1s; }
 .trend-opt:hover { background:var(--s2); }
 .trend-opt input[type=checkbox] { accent-color:var(--accent); width:14px; height:14px; flex-shrink:0; }
 .trend-trigger {
@@ -41,30 +101,33 @@
 .trend-trigger:hover { border-color:var(--muted); }
 .trend-trigger .arrow { font-size:9px; color:var(--muted); }
 
-/* List */
-.list-hdr  { padding:6px 14px; border-bottom:1px solid var(--border); display:grid; grid-template-columns:1fr 70px 90px 60px; gap:4px; flex-shrink:0; }
-.list-hdr span { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; }
-.stock-list{ flex:1; overflow-y:auto; }
-
-.si { padding:9px 14px; border-bottom:1px solid var(--border); cursor:pointer; transition:background .1s; display:grid; grid-template-columns:1fr 70px 90px 60px; gap:4px; align-items:center; }
-.si:hover  { background:var(--s2); }
-.si.active { background:#1a2640; border-left:3px solid var(--accent); padding-left:11px; }
-.sname  { font-weight:600; font-size:13px; }
-.smeta  { font-size:10px; color:var(--muted); margin-top:1px; }
-.sprice { text-align:right; font-weight:600; font-size:13px; }
-.szone  { font-size:10px; color:var(--green); text-align:right; }
-
 /* ── Chart panel ── */
 .chart-panel { flex:1; display:flex; flex-direction:column; min-width:0; overflow:hidden; }
-.chart-hdr   { padding:10px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:var(--surface); flex-shrink:0; }
+.chart-hdr   { padding:10px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:var(--surface); flex-shrink:0; position:relative; }
 .ct-ticker   { font-size:18px; font-weight:700; }
 .ct-price    { font-size:15px; color:var(--green); }
-.legend      { display:flex; gap:14px; padding:5px 18px; border-bottom:1px solid var(--border); font-size:11px; color:var(--muted); background:var(--s2); flex-shrink:0; }
+
+/* Multi-order badge + tooltip in chart header */
+.mo-badge     { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; cursor:pointer; position:relative; }
+.mo-dots      { display:flex; gap:3px; }
+.mo-dot       { width:7px; height:7px; border-radius:50%; }
+.mo-tooltip   {
+  display:none; position:absolute; top:calc(100% + 8px); left:0; z-index:300;
+  background:#1a1f28; border:1px solid var(--border); border-radius:8px;
+  padding:10px 14px; min-width:220px; box-shadow:0 8px 24px rgba(0,0,0,.5);
+  white-space:nowrap;
+}
+.mo-badge:hover .mo-tooltip { display:block; }
+.mo-tt-row    { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:3px 0; font-size:11px; }
+.mo-tt-lbl    { color:var(--muted); }
+.mo-tt-val    { font-weight:600; }
+
+.legend      { display:flex; gap:14px; padding:5px 18px; border-bottom:1px solid var(--border); font-size:11px; color:var(--muted); background:var(--s2); flex-shrink:0; flex-wrap:wrap; }
 .li          { display:flex; align-items:center; gap:4px; }
 .ld          { width:7px; height:7px; border-radius:50%; }
 #chart-wrap  { flex:1; position:relative; min-height:0; }
-.metrics     { display:flex; border-top:1px solid var(--border); background:var(--surface); flex-shrink:0; }
-.met         { flex:1; padding:8px 14px; border-right:1px solid var(--border); }
+.metrics     { display:flex; border-top:1px solid var(--border); background:var(--surface); flex-shrink:0; overflow-x:auto; }
+.met         { flex:1; min-width:80px; padding:8px 14px; border-right:1px solid var(--border); }
 .met:last-child { border-right:none; }
 .ml { font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
 .mv { font-size:14px; font-weight:600; margin-top:2px; }
@@ -74,12 +137,23 @@
 <script>QS.nav('scanner')</script>
 
 <div class="main">
-
   <!-- ── Sidebar ── -->
   <div class="sidebar">
     <div class="controls">
 
-      <!-- Row 1: Watchlist + Direction + Interval -->
+      <!-- Zone Strategy -->
+      <div class="ctrl-row">
+        <div style="display:flex;flex-direction:column;flex:1">
+          <div class="ctrl-label">Zone Strategy</div>
+          <select id="strategy" class="ctrl" style="width:100%">
+            <option value="atr"           selected>ATR Body (RBR + DBR)</option>
+            <option value="consolidation">Consolidation (Volume)</option>
+            <option value="both"         >Both</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Direction + Interval -->
       <div class="ctrl-row">
         <select id="dir" class="ctrl">
           <option value="buy">Buy Zones</option>
@@ -92,14 +166,14 @@
         </select>
       </div>
 
-      <!-- Row 2: Pivot Order + Zone Lookback -->
+      <!-- Pivot Order + Zone Lookback + Legout -->
       <div class="ctrl-row">
         <div style="display:flex;flex-direction:column;flex:1">
           <div class="ctrl-label">Pivot Order</div>
           <input id="order" type="number" class="ctrl" value="5" min="1" max="30" style="width:100%">
         </div>
         <div style="display:flex;flex-direction:column;flex:1">
-          <div class="ctrl-label">Zone Lookback (bars)</div>
+          <div class="ctrl-label">Zone Lookback</div>
           <input id="zlb" type="number" class="ctrl" value="20" min="5" max="500" style="width:100%">
         </div>
         <div style="display:flex;flex-direction:column;flex:1">
@@ -108,7 +182,7 @@
         </div>
       </div>
 
-      <!-- Row 3: Trend filter -->
+      <!-- Trend filter (existing multi-select) -->
       <div>
         <div class="ctrl-label">Trend Filter</div>
         <div class="trend-select-wrap" id="trend-wrap">
@@ -122,32 +196,156 @@
                 <input type="checkbox" id="all-trends" checked onchange="toggleAllTrends(this)"> All trends
               </label>
             </div>
-            <!-- Bullish group -->
             <div style="padding:3px 12px;font-size:9px;color:var(--green);text-transform:uppercase;letter-spacing:.5px">Bullish</div>
-            <div class="trend-opt"><input type="checkbox" class="tc" value="strong_uptrend" checked><span>Strong uptrend</span></div>
-            <div class="trend-opt"><input type="checkbox" class="tc" value="continuous_uptrend" checked><span>Continuous uptrend</span></div>
-            <div class="trend-opt"><input type="checkbox" class="tc" value="up" checked><span>Up</span></div>
-            <div class="trend-opt"><input type="checkbox" class="tc" value="bullish_mitigation" checked><span>Bullish mitigation</span></div>
-            <div class="trend-opt"><input type="checkbox" class="tc" value="semi-up" checked><span>Semi-up</span></div>
-            <div class="trend-opt"><input type="checkbox" class="tc" value="weakening_uptrend" checked><span>Weakening uptrend</span></div>
-            <!-- Neutral group -->
+            <div class="trend-opt"><input type="checkbox" class="tc" value="strong_uptrend"      checked><span>Strong uptrend</span></div>
+            <div class="trend-opt"><input type="checkbox" class="tc" value="continuous_uptrend"  checked><span>Continuous uptrend</span></div>
+            <div class="trend-opt"><input type="checkbox" class="tc" value="up"                  checked><span>Up</span></div>
+            <div class="trend-opt"><input type="checkbox" class="tc" value="bullish_mitigation"  checked><span>Bullish mitigation</span></div>
+            <div class="trend-opt"><input type="checkbox" class="tc" value="semi-up"             checked><span>Semi-up</span></div>
+            <div class="trend-opt"><input type="checkbox" class="tc" value="weakening_uptrend"   checked><span>Weakening uptrend</span></div>
             <div style="padding:3px 12px;font-size:9px;color:var(--amber);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Neutral</div>
-            <div class="trend-opt"><input type="checkbox" class="tc" value="consolidate" checked><span>Consolidate</span></div>
-            <div class="trend-opt"><input type="checkbox" class="tc" value="flat_consolidation" checked><span>Flat consolidation</span></div>
-            <div class="trend-opt"><input type="checkbox" class="tc" value="deep_consolidation" checked><span>Deep consolidation</span></div>
-            <div class="trend-opt"><input type="checkbox" class="tc" value="sw" checked><span>SW (sideways)</span></div>
+            <div class="trend-opt"><input type="checkbox" class="tc" value="consolidate"         checked><span>Consolidate</span></div>
+            <div class="trend-opt"><input type="checkbox" class="tc" value="flat_consolidation"  checked><span>Flat consolidation</span></div>
+            <div class="trend-opt"><input type="checkbox" class="tc" value="deep_consolidation"  checked><span>Deep consolidation</span></div>
+            <div class="trend-opt"><input type="checkbox" class="tc" value="sw"                  checked><span>SW (sideways)</span></div>
             <div class="trend-opt"><input type="checkbox" class="tc" value="expanding_structure" checked><span>Expanding structure</span></div>
-            <!-- Bearish group -->
             <div style="padding:3px 12px;font-size:9px;color:var(--red);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Bearish</div>
             <div class="trend-opt"><input type="checkbox" class="tc" value="weakening_downtrend" checked><span>Weakening downtrend</span></div>
-            <div class="trend-opt"><input type="checkbox" class="tc" value="down" checked><span>Down</span></div>
-            <div class="trend-opt"><input type="checkbox" class="tc" value="continuous_downtrend" checked><span>Continuous downtrend</span></div>
-            <div class="trend-opt"><input type="checkbox" class="tc" value="strong_downtrend" checked><span>Strong downtrend</span></div>
+            <div class="trend-opt"><input type="checkbox" class="tc" value="down"                checked><span>Down</span></div>
+            <div class="trend-opt"><input type="checkbox" class="tc" value="continuous_downtrend"checked><span>Continuous downtrend</span></div>
+            <div class="trend-opt"><input type="checkbox" class="tc" value="strong_downtrend"    checked><span>Strong downtrend</span></div>
+            <div class="trend-opt"><input type="checkbox" class="tc" value="transitioning"       checked><span>Transitioning</span></div>
           </div>
         </div>
       </div>
 
-      <!-- Row 4: Scan button -->
+      <!-- ── Multi-Order Section ── -->
+      <div class="sec-divider">Multi-Order Trend Analysis</div>
+      <div class="mo-section" id="mo-section">
+        <!-- Enable toggle -->
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="checkbox" id="mo-enable" style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer"
+                 onchange="toggleMO(this.checked)">
+          <label for="mo-enable" style="font-size:12px;cursor:pointer;color:var(--text)">
+            Enable Multi-Order Analysis
+          </label>
+        </div>
+
+        <!-- Order inputs + trend selects -->
+        <div id="mo-inputs" class="mo-disabled">
+
+          <!-- Higher Order -->
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:7px">
+            <span class="mo-label mo-high">High</span>
+            <div style="display:flex;flex-direction:column;flex:0 0 60px">
+              <div class="ctrl-label">Order</div>
+              <input id="mo-order-high" type="number" class="ctrl" value="20" min="1" max="100" style="width:100%;padding:4px 6px;font-size:12px">
+            </div>
+            <div style="display:flex;flex-direction:column;flex:1">
+              <div class="ctrl-label">Trend Must Be</div>
+              <select id="mo-trend-high" class="trend-sel">
+                <option value="any" selected>Any</option>
+                <optgroup label="── Uptrend ──">
+                  <option value="any_uptrend">Any uptrend</option>
+                  <option value="strong_uptrend">Strong uptrend</option>
+                  <option value="continuous_uptrend">Continuous uptrend</option>
+                  <option value="up">Up</option>
+                  <option value="semi-up">Semi-up</option>
+                  <option value="weakening_uptrend">Weakening uptrend</option>
+                </optgroup>
+                <optgroup label="── Downtrend ──">
+                  <option value="any_downtrend">Any downtrend</option>
+                  <option value="strong_downtrend">Strong downtrend</option>
+                  <option value="continuous_downtrend">Continuous downtrend</option>
+                  <option value="down">Down</option>
+                  <option value="weakening_downtrend">Weakening downtrend</option>
+                </optgroup>
+                <optgroup label="── Neutral ──">
+                  <option value="any_neutral">Any neutral</option>
+                  <option value="consolidate">Consolidate</option>
+                  <option value="flat_consolidation">Flat consolidation</option>
+                  <option value="transitioning">Transitioning</option>
+                </optgroup>
+              </select>
+            </div>
+          </div>
+
+          <!-- Mid Order -->
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:7px">
+            <span class="mo-label mo-mid">Mid</span>
+            <div style="display:flex;flex-direction:column;flex:0 0 60px">
+              <div class="ctrl-label">Order</div>
+              <input id="mo-order-mid" type="number" class="ctrl" value="10" min="1" max="60" style="width:100%;padding:4px 6px;font-size:12px">
+            </div>
+            <div style="display:flex;flex-direction:column;flex:1">
+              <div class="ctrl-label">Trend Must Be</div>
+              <select id="mo-trend-mid" class="trend-sel">
+                <option value="any" selected>Any</option>
+                <optgroup label="── Uptrend ──">
+                  <option value="any_uptrend">Any uptrend</option>
+                  <option value="strong_uptrend">Strong uptrend</option>
+                  <option value="continuous_uptrend">Continuous uptrend</option>
+                  <option value="up">Up</option>
+                  <option value="semi-up">Semi-up</option>
+                  <option value="weakening_uptrend">Weakening uptrend</option>
+                </optgroup>
+                <optgroup label="── Downtrend ──">
+                  <option value="any_downtrend">Any downtrend</option>
+                  <option value="strong_downtrend">Strong downtrend</option>
+                  <option value="continuous_downtrend">Continuous downtrend</option>
+                  <option value="down">Down</option>
+                  <option value="weakening_downtrend">Weakening downtrend</option>
+                </optgroup>
+                <optgroup label="── Neutral ──">
+                  <option value="any_neutral">Any neutral</option>
+                  <option value="consolidate">Consolidate</option>
+                  <option value="flat_consolidation">Flat consolidation</option>
+                  <option value="transitioning">Transitioning</option>
+                </optgroup>
+              </select>
+            </div>
+          </div>
+
+          <!-- Low Order -->
+          <div style="display:flex;align-items:center;gap:6px">
+            <span class="mo-label mo-low">Low</span>
+            <div style="display:flex;flex-direction:column;flex:0 0 60px">
+              <div class="ctrl-label">Order</div>
+              <input id="mo-order-low" type="number" class="ctrl" value="5" min="1" max="30" style="width:100%;padding:4px 6px;font-size:12px">
+            </div>
+            <div style="display:flex;flex-direction:column;flex:1">
+              <div class="ctrl-label">Trend Must Be</div>
+              <select id="mo-trend-low" class="trend-sel">
+                <option value="any" selected>Any</option>
+                <optgroup label="── Uptrend ──">
+                  <option value="any_uptrend">Any uptrend</option>
+                  <option value="strong_uptrend">Strong uptrend</option>
+                  <option value="continuous_uptrend">Continuous uptrend</option>
+                  <option value="up">Up</option>
+                  <option value="semi-up">Semi-up</option>
+                  <option value="weakening_uptrend">Weakening uptrend</option>
+                </optgroup>
+                <optgroup label="── Downtrend ──">
+                  <option value="any_downtrend">Any downtrend</option>
+                  <option value="strong_downtrend">Strong downtrend</option>
+                  <option value="continuous_downtrend">Continuous downtrend</option>
+                  <option value="down">Down</option>
+                  <option value="weakening_downtrend">Weakening downtrend</option>
+                </optgroup>
+                <optgroup label="── Neutral ──">
+                  <option value="any_neutral">Any neutral</option>
+                  <option value="consolidate">Consolidate</option>
+                  <option value="flat_consolidation">Flat consolidation</option>
+                  <option value="transitioning">Transitioning</option>
+                </optgroup>
+              </select>
+            </div>
+          </div>
+
+        </div><!-- mo-inputs -->
+      </div><!-- mo-section -->
+
+      <!-- Scan button -->
       <button id="sbtn" class="btn btn-primary" onclick="runScan()" style="width:100%">▶ Scan</button>
 
     </div><!-- controls -->
@@ -170,6 +368,12 @@
       <span class="ct-ticker" id="ct-t">–</span>
       <span class="ct-price"  id="ct-p">–</span>
       <span id="ct-tr" class="tbadge badge-co">–</span>
+      <!-- Multi-order badge (shown when MO enabled) -->
+      <span id="mo-hdr-badge" style="display:none" class="mo-badge">
+        <div class="mo-dots" id="mo-hdr-dots"></div>
+        <span id="mo-hdr-combined"></span>
+        <div class="mo-tooltip" id="mo-hdr-tooltip"></div>
+      </span>
       <div class="tf-group" style="margin-left:auto">
         <button class="tf-btn active" onclick="setTf('1d',this)">1D</button>
         <button class="tf-btn" onclick="setTf('1wk',this)">1W</button>
@@ -180,8 +384,10 @@
     <div class="legend">
       <span class="li"><span class="ld" style="background:#ef4444"></span>Top pivot</span>
       <span class="li"><span class="ld" style="background:#22c55e"></span>Bottom pivot</span>
-      <span class="li"><span style="display:inline-block;width:14px;height:8px;background:rgba(34,197,94,.25);border:1px solid #22c55e;border-radius:2px"></span>Buy zone</span>
-      <span class="li"><span style="display:inline-block;width:14px;height:8px;background:rgba(239,68,68,.25);border:1px solid #ef4444;border-radius:2px"></span>Sell zone</span>
+      <span class="li"><span style="display:inline-block;width:14px;height:8px;background:rgba(34,197,94,.25);border:1px solid #22c55e;border-radius:2px"></span>RBR</span>
+      <span class="li"><span style="display:inline-block;width:14px;height:8px;background:rgba(45,212,191,.25);border:1px solid #2dd4bf;border-radius:2px"></span>DBR</span>
+      <span class="li"><span style="display:inline-block;width:14px;height:8px;background:rgba(167,139,250,.25);border:1px solid #a78bfa;border-radius:2px"></span>Consol.</span>
+      <span class="li"><span style="display:inline-block;width:14px;height:8px;background:rgba(136,136,136,.15);border:1px dashed #888;border-radius:2px"></span>Invalidated</span>
     </div>
 
     <div id="chart-wrap">
@@ -194,34 +400,50 @@
       <div class="met"><div class="ml">Zones Found</div><div class="mv" id="m3">–</div></div>
       <div class="met"><div class="ml">Zone Age</div><div class="mv" id="m4">–</div></div>
       <div class="met"><div class="ml">Pivots</div><div class="mv" id="m5">–</div></div>
+      <div class="met"><div class="ml">Velocity</div><div class="mv" id="m6">–</div></div>
+      <div class="met"><div class="ml">Leg Ratio</div><div class="mv" id="m7">–</div></div>
+      <div class="met"><div class="ml">Amplitude</div><div class="mv" id="m8">–</div></div>
     </div>
   </div>
-
-</div><!-- main -->
+</div>
 
 <script>
 const API = QS.API;
 let chart=null, cs=null, xtra=[], chartTf='1d', rows=[], activeRow=null;
-const ST = 'qs_scanner_v2';
+const ST = 'qs_scanner_v3';
 
-/* ── Trend dropdown ───────────────────────────────────────────────── */
+// ── Trend color helpers ──────────────────────────────────────────────
+const UP_SET  = new Set(['strong_uptrend','continuous_uptrend','up','semi-up','weakening_uptrend','bullish_mitigation']);
+const DN_SET  = new Set(['strong_downtrend','continuous_downtrend','down','weakening_downtrend']);
+function trendColor(t) {
+  if (UP_SET.has(t))  return '#22c55e';
+  if (DN_SET.has(t))  return '#ef4444';
+  if (t==='transitioning') return '#f59e0b';
+  return '#8892a0';
+}
+function trendDotColor(t) { return trendColor(t); }
+
+// ── Multi-order toggle ───────────────────────────────────────────────
+function toggleMO(enabled) {
+  document.getElementById('mo-inputs').classList.toggle('mo-disabled', !enabled);
+  saveState();
+}
+
+// ── Trend dropdown (existing) ────────────────────────────────────────
 function toggleTrendDD(e) {
   e.stopPropagation();
   document.getElementById('trend-dd').classList.toggle('open');
 }
-document.addEventListener('click', () => {
-  document.getElementById('trend-dd').classList.remove('open');
-});
+document.addEventListener('click', () => document.getElementById('trend-dd').classList.remove('open'));
 document.getElementById('trend-dd').addEventListener('click', e => e.stopPropagation());
 
 function toggleAllTrends(cb) {
   document.querySelectorAll('.tc').forEach(c => c.checked = cb.checked);
   updateTrendLabel();
 }
-
 function updateTrendLabel() {
-  const all  = document.querySelectorAll('.tc');
-  const chk  = [...all].filter(c => c.checked);
+  const all = document.querySelectorAll('.tc');
+  const chk = [...all].filter(c => c.checked);
   const allCb = document.getElementById('all-trends');
   allCb.checked = chk.length === all.length;
   allCb.indeterminate = chk.length > 0 && chk.length < all.length;
@@ -230,28 +452,30 @@ function updateTrendLabel() {
     chk.length === 0          ? 'No trends selected' :
     `${chk.length} trend${chk.length>1?'s':''} selected`;
 }
-
-document.querySelectorAll('.tc').forEach(cb => {
-  cb.addEventListener('change', () => {
-    updateTrendLabel();
-    saveState();
-  });
-});
+document.querySelectorAll('.tc').forEach(cb => cb.addEventListener('change', () => { updateTrendLabel(); saveState(); }));
 
 function getSelectedTrends() {
   const chk = [...document.querySelectorAll('.tc')].filter(c => c.checked).map(c => c.value);
-  const all  = document.querySelectorAll('.tc').length;
-  return chk.length === all ? '' : chk.join(',');
+  return chk.length === document.querySelectorAll('.tc').length ? '' : chk.join(',');
 }
 
-/* ── State ────────────────────────────────────────────────────────── */
+function G(id) { return document.getElementById(id); }
+
+// ── State persistence ────────────────────────────────────────────────
 function saveState() {
   const trends = [...document.querySelectorAll('.tc')].map(c => ({v:c.value,ch:c.checked}));
   sessionStorage.setItem(ST, JSON.stringify({
     dir: G('dir').value, itv: G('itv').value,
-    order: G('order').value, zlb: G('zlb').value, legout: G('legout').value,
-    chartTf, rows, activeTicker: activeRow?.ticker,
-    trends,
+    order: G('order').value, zlb: G('zlb').value,
+    legout: G('legout').value, strategy: G('strategy').value,
+    chartTf, rows, activeTicker: activeRow?.ticker, trends,
+    mo_enable:     G('mo-enable').checked,
+    mo_order_high: G('mo-order-high').value,
+    mo_order_mid:  G('mo-order-mid').value,
+    mo_order_low:  G('mo-order-low').value,
+    mo_trend_high: G('mo-trend-high').value,
+    mo_trend_mid:  G('mo-trend-mid').value,
+    mo_trend_low:  G('mo-trend-low').value,
   }));
 }
 
@@ -259,11 +483,12 @@ function restoreState() {
   try {
     const s = JSON.parse(sessionStorage.getItem(ST)||'null');
     if (!s) return;
-    if (s.dir)   G('dir').value   = s.dir;
-    if (s.itv)   G('itv').value   = s.itv;
-    if (s.order) G('order').value = s.order;
-    if (s.zlb)   G('zlb').value   = s.zlb;
-    if (s.legout) G('legout').value = s.legout;
+    if (s.dir)      G('dir').value      = s.dir;
+    if (s.itv)      G('itv').value      = s.itv;
+    if (s.order)    G('order').value    = s.order;
+    if (s.zlb)      G('zlb').value      = s.zlb;
+    if (s.legout)   G('legout').value   = s.legout;
+    if (s.strategy) G('strategy').value = s.strategy;
     if (s.chartTf) {
       chartTf = s.chartTf;
       document.querySelectorAll('.tf-btn').forEach(b => {
@@ -278,6 +503,18 @@ function restoreState() {
       });
       updateTrendLabel();
     }
+    // Multi-order state
+    if (s.mo_enable !== undefined) {
+      G('mo-enable').checked = s.mo_enable;
+      toggleMO(s.mo_enable);
+    }
+    if (s.mo_order_high) G('mo-order-high').value = s.mo_order_high;
+    if (s.mo_order_mid)  G('mo-order-mid').value  = s.mo_order_mid;
+    if (s.mo_order_low)  G('mo-order-low').value  = s.mo_order_low;
+    if (s.mo_trend_high) G('mo-trend-high').value = s.mo_trend_high;
+    if (s.mo_trend_mid)  G('mo-trend-mid').value  = s.mo_trend_mid;
+    if (s.mo_trend_low)  G('mo-trend-low').value  = s.mo_trend_low;
+
     if (s.rows?.length) {
       rows = s.rows;
       QS.navBadge(`${rows.length} setups`);
@@ -292,9 +529,7 @@ function restoreState() {
   } catch(e) {}
 }
 
-function G(id) { return document.getElementById(id); }
-
-/* ── Chart ────────────────────────────────────────────────────────── */
+// ── Chart ────────────────────────────────────────────────────────────
 function initChart() {
   const wrap = G('chart-wrap');
   wrap.innerHTML = '';
@@ -324,96 +559,118 @@ function renderChart(d, activeZone) {
 
   cs.setData(d.candles);
   cs.setMarkers((d.pivots||[]).map(p => ({
-    time: p.time,
+    time:     p.time,
     position: p.type==='T' ? 'aboveBar' : 'belowBar',
     color:    p.type==='T' ? '#ef4444'  : '#22c55e',
     shape:    p.type==='T' ? 'arrowDown': 'arrowUp',
     size: 1,
   })));
 
-  const dir = d.direction || 'buy';
-  const zoneColor = dir === 'buy' ? '#22c55e' : '#ef4444';
-
-  // Draw ALL zones
+  const dir      = d.direction || 'buy';
   const allZones = dir === 'buy' ? (d.buy_zones||[]) : (d.sell_zones||[]);
-  allZones.forEach(z => {
-    const isActive = activeZone &&
-      z.time_start === activeZone.zone_legin_ts &&
-      z.time_end   === activeZone.zone_legout_ts;
 
-    // Extend right so the zone box is clearly visible
-    const extendedEnd = z.time_end + Math.round((z.time_end - z.time_start) * 0.5 + 86400 * 5);
+  const TYPE_COLOR = {
+    rbr:'#22c55e', dbr:'#2dd4bf', dbd:'#ef4444',
+    rbd:'#f97316', consolidation:'#a78bfa',
+  };
 
-    if (isActive) {
-      // ── Active zone: soft border lines + baseline fill (high→low only) ──
+  const candles   = d.candles || [];
+  const firstTime = candles.length ? candles[0].time : 0;
+  const lastTime  = candles.length ? candles[candles.length-1].time : 0;
+  const barSec    = candles.length > 1 ? candles[candles.length-1].time - candles[candles.length-2].time : 86400;
 
-      // Top border — thin, soft
-      const sTop = chart.addLineSeries({
-        color: zoneColor + '99', lineWidth: 1, lineStyle: 0,
-        crosshairMarkerVisible:false, lastValueVisible:false, priceLineVisible:false,
-      });
-      sTop.setData([
-        { time: z.time_start, value: z.price_high },
-        { time: extendedEnd,  value: z.price_high },
-      ]);
+  const TOLERANCE = 86400;
+  const activeTs  = activeZone?.zone_legin_ts ?? null;
 
-      // Bottom border — thin, soft
-      const sBot = chart.addLineSeries({
-        color: zoneColor + '99', lineWidth: 1, lineStyle: 0,
-        crosshairMarkerVisible:false, lastValueVisible:false, priceLineVisible:false,
-      });
-      sBot.setData([
-        { time: z.time_start, value: z.price_low },
-        { time: extendedEnd,  value: z.price_low },
-      ]);
+  const sorted = [...allZones].sort((a, b) => a.time_start - b.time_start);
 
-      // Fill: baseline at price_low so fill stays BETWEEN high and low
-      const sFill = chart.addBaselineSeries({
-        baseValue:        { type: 'price', price: z.price_low },
-        topLineColor:     'transparent',
-        topFillColor1:    zoneColor + '45',
-        topFillColor2:    zoneColor + '25',
-        bottomLineColor:  'transparent',
-        bottomFillColor1: 'transparent',
-        bottomFillColor2: 'transparent',
-        lineWidth:        0,
-        crosshairMarkerVisible: false,
-        lastValueVisible:       false,
-        priceLineVisible:       false,
-      });
-      sFill.setData([
-        { time: z.time_start, value: z.price_high },
-        { time: extendedEnd,  value: z.price_high },
-      ]);
+  sorted.forEach(z => {
+    const isActive = activeTs !== null && Math.abs(z.time_start - activeTs) <= TOLERANCE;
+    const status   = z.status    || 'fresh';
+    const ztype    = z.zone_type || 'rbr';
+    const color    = TYPE_COLOR[ztype] || '#22c55e';
+    const isInval  = status === 'invalidated';
 
-      xtra.push(sTop, sBot, sFill);
+    const ts0 = Math.max(z.time_start, firstTime);
+    const ts1 = Math.max(lastTime + barSec * 5, z.time_end + barSec * 3);
 
+    if (!z.price_high || !z.price_low || z.price_high <= z.price_low) return;
+    if (ts0 > lastTime) return;
+
+    let borderAlpha, fillAlpha1, fillAlpha2, lineStyle, lineWidth, drawColor;
+
+    if (isInval) {
+      drawColor='#888888'; borderAlpha='55'; fillAlpha1='18'; fillAlpha2='10'; lineStyle=2; lineWidth=1;
+    } else if (isActive) {
+      drawColor=color; borderAlpha='ff'; fillAlpha1='66'; fillAlpha2='44'; lineStyle=0; lineWidth=2;
+    } else if (status==='fresh') {
+      drawColor=color; borderAlpha='cc'; fillAlpha1='44'; fillAlpha2='28'; lineStyle=0; lineWidth=1;
     } else {
-      // ── Non-active zones: dimmed dashed borders only, no fill ──
-      const sTop = chart.addLineSeries({
-        color: zoneColor + '40', lineWidth: 1, lineStyle: 2,
-        crosshairMarkerVisible:false, lastValueVisible:false, priceLineVisible:false,
-      });
-      sTop.setData([
-        { time: z.time_start, value: z.price_high },
-        { time: extendedEnd,  value: z.price_high },
-      ]);
-      const sBot = chart.addLineSeries({
-        color: zoneColor + '40', lineWidth: 1, lineStyle: 2,
-        crosshairMarkerVisible:false, lastValueVisible:false, priceLineVisible:false,
-      });
-      sBot.setData([
-        { time: z.time_start, value: z.price_low },
-        { time: extendedEnd,  value: z.price_low },
-      ]);
-      xtra.push(sTop, sBot);
+      drawColor=color; borderAlpha='99'; fillAlpha1='33'; fillAlpha2='1e'; lineStyle=0; lineWidth=1;
     }
+
+    try {
+      const sTop = chart.addLineSeries({ color:drawColor+borderAlpha, lineWidth, lineStyle, crosshairMarkerVisible:false, lastValueVisible:false, priceLineVisible:false });
+      sTop.setData([{time:ts0,value:z.price_high},{time:ts1,value:z.price_high}]);
+
+      const sBot = chart.addLineSeries({ color:drawColor+borderAlpha, lineWidth, lineStyle, crosshairMarkerVisible:false, lastValueVisible:false, priceLineVisible:false });
+      sBot.setData([{time:ts0,value:z.price_low},{time:ts1,value:z.price_low}]);
+
+      const sFill = chart.addBaselineSeries({
+        baseValue:{type:'price',price:z.price_low},
+        topLineColor:'transparent', topFillColor1:drawColor+fillAlpha1, topFillColor2:drawColor+fillAlpha2,
+        bottomLineColor:'transparent', bottomFillColor1:'transparent', bottomFillColor2:'transparent',
+        lineWidth:0, crosshairMarkerVisible:false, lastValueVisible:false, priceLineVisible:false,
+      });
+      sFill.setData([{time:ts0,value:z.price_high},{time:ts1,value:z.price_high}]);
+      xtra.push(sTop, sBot, sFill);
+    } catch(err) {}
   });
+
+  // ── Update multi-order badge in chart header ───────────────────────
+  const mo = d.multiorder;
+  const badge = G('mo-hdr-badge');
+  if (mo) {
+    badge.style.display = 'inline-flex';
+    const combined = mo.combined_trend || '–';
+    G('mo-hdr-combined').textContent = combined.replace(/_/g,' ');
+    badge.style.background = trendColor(combined) + '22';
+    badge.style.border     = `1px solid ${trendColor(combined)}66`;
+    badge.style.color      = trendColor(combined);
+
+    // Alignment dots
+    const dots = G('mo-hdr-dots');
+    dots.innerHTML = ['high','mid','low'].map(lv => {
+      const c = trendDotColor(mo[lv]?.trend || 'sw');
+      return `<span class="mo-dot" style="background:${c}" title="${lv}"></span>`;
+    }).join('');
+
+    // Tooltip
+    G('mo-hdr-tooltip').innerHTML = `
+      <div style="font-size:10px;color:var(--muted);margin-bottom:6px;font-weight:700">MULTI-ORDER BREAKDOWN</div>
+      ${['high','mid','low'].map(lv => {
+        const lv_data = mo[lv];
+        const t = lv_data?.trend || '–';
+        const s = lv_data?.score ?? 0;
+        const c = trendColor(t);
+        const pct = Math.round((s + 1) / 2 * 100);
+        return `<div class="mo-tt-row">
+          <span class="mo-tt-lbl">${lv.toUpperCase()}(${lv_data?.order})</span>
+          <span class="mo-tt-val" style="color:${c}">${t.replace(/_/g,' ')}</span>
+          <span style="font-size:10px;color:var(--muted)">${pct}%</span>
+        </div>`;
+      }).join('')}
+      <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);font-size:10px">
+        Alignment: ${'●'.repeat(mo.alignment)}${'○'.repeat(3-mo.alignment)}
+      </div>`;
+  } else {
+    badge.style.display = 'none';
+  }
 
   chart.timeScale().fitContent();
 }
 
-/* ── Select stock ────────────────────────────────────────────────── */
+// ── Select stock ─────────────────────────────────────────────────────
 async function selectStock(ticker, row, persist=true) {
   activeRow = row;
   document.querySelectorAll('.si').forEach(e => e.classList.remove('active'));
@@ -421,25 +678,37 @@ async function selectStock(ticker, row, persist=true) {
   if (el) el.classList.add('active');
 
   G('ct-t').textContent = ticker.replace('.NS','');
-  G('ct-p').textContent = row ? '₹' + (row.close||0).toLocaleString('en-IN') : '';
+  G('ct-p').textContent = row ? '₹'+(row.close||0).toLocaleString('en-IN') : '';
   const tr = G('ct-tr');
   tr.textContent = (row?.trend||'').replace(/_/g,' ');
   tr.className   = 'tbadge ' + QS.tClass(row?.trend);
 
-  G('m1').textContent = row ? row.atr_pct + '%' : '–';
-  G('m2').textContent = row?.trend_strength || '–';
-  G('m3').textContent = row?.zones_count ?? '–';
-  G('m4').textContent = row ? row.bars_ago + ' bars ago' : '–';
-  G('m5').textContent = row?.pivot_count ?? '–';
+  G('m1').textContent = row ? row.atr_pct+'%'      : '–';
+  G('m2').textContent = row?.trend_strength         || '–';
+  G('m3').textContent = row?.zones_count            ?? '–';
+  G('m4').textContent = row ? row.bars_ago+' bars'  : '–';
+  G('m5').textContent = row?.pivot_count            ?? '–';
+  G('m6').textContent = row ? (row.vel_current > 0 ? '+' : '') + row.vel_current + ' (' + row.vel_label + ')' : '–';
+  G('m7').textContent = row ? row.lr_ratio + '× ' + (row.lr_label||'').replace(/_/g,' ') : '–';
+  G('m8').textContent = row ? row.amp_avg + ' ' + (row.amp_regime||'') : '–';
 
   if (!chart) initChart();
 
-  // Fetch chart data with same pivot order
-  const ord = G('order').value;
+  const moEnabled = G('mo-enable').checked;
   try {
-    const scanItv = G('itv').value;
-    const useItv  = chartTf !== '1d' ? chartTf : scanItv;
-    const r = await fetch(`${API}/chart/${encodeURIComponent(ticker)}?interval=${useItv}&order=${ord}`);
+    const useItv = chartTf !== '1d' ? chartTf : G('itv').value;
+    const url = `${API}/chart/${encodeURIComponent(ticker)}`
+      + `?interval=${useItv}`
+      + `&order=${G('order').value}`
+      + `&legout_mult=${G('legout').value}`
+      + `&strategy=${G('strategy').value}`
+      + `&zone_lookback=${G('zlb').value}`
+      + `&multi_order=${moEnabled}`
+      + `&order_low=${G('mo-order-low').value}`
+      + `&order_mid=${G('mo-order-mid').value}`
+      + `&order_high=${G('mo-order-high').value}`;
+
+    const r = await fetch(url);
     const d = await r.json();
     if (!d.error) {
       d.direction = row?.direction || 'buy';
@@ -458,20 +727,29 @@ function setTf(tf, btn) {
   saveState();
 }
 
-/* ── Scan ────────────────────────────────────────────────────────── */
+// ── Scan ─────────────────────────────────────────────────────────────
 async function runScan() {
   const btn = G('sbtn');
   btn.disabled = true; btn.textContent = '⏳ Scanning…';
   G('list').innerHTML = '<div class="empty-state"><div class="spin"></div><span>Scanning…</span></div>';
 
   try {
-    const trends = getSelectedTrends();
+    const moEnabled = G('mo-enable').checked;
+    const trends    = getSelectedTrends();
     const url = `${API}/scan?`
-      + `&direction=${G('dir').value}`
+      + `direction=${G('dir').value}`
       + `&interval=${G('itv').value}`
       + `&order=${G('order').value}`
       + `&zone_lookback=${G('zlb').value}`
       + `&legout_mult=${G('legout').value}`
+      + `&strategy=${G('strategy').value}`
+      + `&multi_order=${moEnabled}`
+      + `&order_low=${G('mo-order-low').value}`
+      + `&order_mid=${G('mo-order-mid').value}`
+      + `&order_high=${G('mo-order-high').value}`
+      + `&trend_low=${G('mo-trend-low').value}`
+      + `&trend_mid=${G('mo-trend-mid').value}`
+      + `&trend_high=${G('mo-trend-high').value}`
       + (trends ? `&trend_filter=${encodeURIComponent(trends)}` : '');
 
     const r = await fetch(url);
@@ -481,37 +759,148 @@ async function runScan() {
     renderList(rows);
     saveState();
   } catch(e) {
-    G('list').innerHTML = `<div class="empty-state"><span style="color:var(--red)">⚠ ${e.message}</span><small>Run: python app.py</small></div>`;
+    G('list').innerHTML = `<div class="empty-state"><span style="color:var(--red)">⚠ ${e.message}</span></div>`;
   } finally {
     btn.disabled = false; btn.textContent = '▶ Scan';
   }
 }
 
+// ── Render list ───────────────────────────────────────────────────────
 function renderList(rs) {
   const list = G('list');
   if (!rs.length) {
     list.innerHTML = '<div class="empty-state"><span>No zones found — adjust filters</span></div>';
     return;
   }
-  list.innerHTML = rs.map((r,i) => `
-    <div class="si" data-t="${r.ticker}" data-i="${i}">
-      <div>
-        <div class="sname">${r.ticker.replace('.NS','')}</div>
-        <div class="smeta">${(r.trend||'').replace(/_/g,' ')} · ATR ${r.atr_pct}%</div>
+
+  const ZONE_TYPE_STYLE = {
+    rbr:           'background:#14532d;color:#86efac',
+    dbr:           'background:#134e4a;color:#99f6e4',
+    dbd:           'background:#7f1d1d;color:#fca5a5',
+    rbd:           'background:#431407;color:#fdba74',
+    consolidation: 'background:#2e1065;color:#ddd6fe',
+  };
+  const ZONE_STATUS_STYLE = {
+    fresh:'color:#22c55e', tested:'color:#f59e0b', invalidated:'color:#6b7280',
+  };
+
+  list.innerHTML = rs.map((r,i) => {
+    const ztStyle  = ZONE_TYPE_STYLE[r.zone_type]   || ZONE_TYPE_STYLE.rbr;
+    const zsStyle  = ZONE_STATUS_STYLE[r.zone_status] || '';
+    const ztLabel  = (r.zone_type||'rbr').toUpperCase();
+    const moBlock  = r.mo_low_trend ? buildMOBlock(r) : '';
+    const velSign  = r.vel_current > 0 ? '+' : '';
+    const accelIcon = r.vel_label === 'accelerating' ? '↑' : r.vel_label === 'decelerating' ? '↓' : '→';
+
+    return `
+    <div class="si" data-t="${r.ticker}" data-i="${i}" id="si-${i}">
+      <div class="si-main" onclick="siClick(${i}, event)">
+        <div>
+          <div class="sname">${r.ticker.replace('.NS','')}</div>
+          <div class="smeta">${(r.trend||'').replace(/_/g,' ')} · ATR ${r.atr_pct}%</div>
+        </div>
+        <div class="sprice">₹${(r.close||0).toLocaleString('en-IN')}</div>
+        <div style="text-align:center">
+          <span class="tbadge ${QS.tClass(r.trend)}">${(r.trend||'').replace(/_/g,' ')}</span>
+        </div>
+        <div style="text-align:right">
+          <div class="szone" style="${zsStyle}">${r.bars_ago}b ago</div>
+          <div style="font-size:9px;margin-top:2px">
+            <span style="padding:1px 5px;border-radius:3px;${ztStyle}">${ztLabel}</span>
+          </div>
+        </div>
       </div>
-      <div class="sprice">₹${(r.close||0).toLocaleString('en-IN')}</div>
-      <div style="text-align:center"><span class="tbadge ${QS.tClass(r.trend)}">${(r.trend||'').replace(/_/g,' ')}</span></div>
-      <div class="szone">${r.bars_ago}b ago</div>
-    </div>`
-  ).join('');
-  document.querySelectorAll('.si').forEach((el,i) => {
-    el.onclick = () => selectStock(rows[i].ticker, rows[i]);
-  });
+      <div class="si-detail">
+        ${moBlock}
+        <div class="det-section">
+          <div class="det-title">Velocity · Amplitude · Leg Ratio</div>
+          <div class="det-grid">
+            <div class="det-tile">
+              <div class="det-tile-l">Velocity</div>
+              <div class="det-tile-v" style="color:${r.vel_current>=0?'var(--green)':'var(--red)'}">
+                ${velSign}${r.vel_current ?? '–'} pts/bar
+              </div>
+              <div class="det-tile-s">${accelIcon} ${r.vel_label||'–'}</div>
+            </div>
+            <div class="det-tile">
+              <div class="det-tile-l">Amplitude</div>
+              <div class="det-tile-v">${r.amp_avg ?? '–'}</div>
+              <div class="det-tile-s">${r.amp_regime||'–'} · ${r.amp_variance ?? '–'}% var</div>
+            </div>
+            <div class="det-tile">
+              <div class="det-tile-l">Leg Ratio</div>
+              <div class="det-tile-v" style="color:${r.lr_ratio>=1?'var(--green)':'var(--red)'}">
+                ${r.lr_ratio ?? '–'}×
+              </div>
+              <div class="det-tile-s">${(r.lr_label||'–').replace(/_/g,' ')}</div>
+            </div>
+          </div>
+          <div class="det-grid" style="margin-top:4px">
+            <div class="det-tile">
+              <div class="det-tile-l">Avg Velocity</div>
+              <div class="det-tile-v">${r.vel_avg ?? '–'}</div>
+            </div>
+            <div class="det-tile">
+              <div class="det-tile-l">Recent Amp</div>
+              <div class="det-tile-v">${r.amp_recent ?? '–'}</div>
+            </div>
+            <div class="det-tile">
+              <div class="det-tile-l">Recent Ratio</div>
+              <div class="det-tile-v">${r.lr_recent ?? '–'}×</div>
+              <div class="det-tile-s">Bull ${r.lr_bull ?? '–'} / Bear ${r.lr_bear ?? '–'}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
 }
 
-/* ── Boot ────────────────────────────────────────────────────────── */
-['dir','itv','order','zlb','legout'].forEach(id => {
-  G(id).addEventListener('change', saveState);
+function buildMOBlock(r) {
+  const levels = [
+    { key:'high', label:'H', order: r.mo_order_high, trend: r.mo_high_trend, score: r.mo_high_score },
+    { key:'mid',  label:'M', order: r.mo_order_mid,  trend: r.mo_mid_trend,  score: r.mo_mid_score  },
+    { key:'low',  label:'L', order: r.mo_order_low,  trend: r.mo_low_trend,  score: r.mo_low_score  },
+  ];
+  const alignDots = '●'.repeat(r.mo_alignment||0) + '○'.repeat(3-(r.mo_alignment||0));
+  const rows = levels.map(lv => {
+    const c   = trendColor(lv.trend || 'sw');
+    const pct = Math.round(((lv.score ?? 0) + 1) / 2 * 100);
+    return `<div class="mo-bar-row">
+      <span class="mo-bar-lbl" style="color:${c}">${lv.label}(${lv.order})</span>
+      <span class="mo-bar-trend">${(lv.trend||'–').replace(/_/g,' ')}</span>
+      <div class="mo-bar-track">
+        <div class="mo-bar-fill" style="width:${pct}%;background:${c}"></div>
+      </div>
+      <span style="font-size:10px;color:var(--muted);width:30px;text-align:right">${pct}%</span>
+    </div>`;
+  }).join('');
+
+  return `<div class="det-section">
+    <div class="det-title">Multi-Order Trend &nbsp;<span style="color:var(--amber);font-weight:400">${alignDots} alignment ${r.mo_alignment}/3</span></div>
+    ${rows}
+  </div>`;
+}
+
+function siClick(i, e) {
+  const el  = document.getElementById(`si-${i}`);
+  const row = rows[i];
+
+  // Expand/collapse detail on click, select on stock name click
+  const wasExpanded = el.classList.contains('expanded');
+
+  // Always select
+  selectStock(row.ticker, row);
+
+  // Toggle expand
+  el.classList.toggle('expanded', !wasExpanded);
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────
+['dir','itv','order','zlb','legout','strategy',
+ 'mo-order-high','mo-order-mid','mo-order-low',
+ 'mo-trend-high','mo-trend-mid','mo-trend-low'].forEach(id => {
+  G(id)?.addEventListener('change', saveState);
 });
 restoreState();
 </script>

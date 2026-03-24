@@ -27,6 +27,13 @@ import pandas as pd
 warnings.simplefilter("ignore", FutureWarning)
 warnings.simplefilter("ignore", DeprecationWarning)
 
+_INSTRUMENT_DF: Optional[pd.DataFrame] = None
+_KEY_MAP:       Optional[Dict[str, str]] = None   # instrument_key → trading_symbol
+_NSE_SYM_MAP:  Optional[Dict[str, str]] = None   # trading_symbol → instrument_key (NSE_EQ)
+_BSE_SYM_MAP:  Optional[Dict[str, str]] = None   # trading_symbol → instrument_key (BSE_EQ)
+_NSE_ISIN_MAP: Optional[Dict[str, str]] = None   # isin → instrument_key (NSE_EQ)
+
+
 # ── Project paths ─────────────────────────────────────────────────────────────
 _ROOT      = Path(__file__).resolve().parent.parent
 DATA_DIR   = _ROOT / "data_store"
@@ -94,50 +101,115 @@ _BSE_SYM_MAP: Optional[Dict[str, str]] = None   # trading_symbol → instrument_
 
 
 def _build_maps(df: pd.DataFrame) -> None:
-    """Build all lookup maps from instrument master in one pass."""
-    global _KEY_MAP, _NSE_SYM_MAP, _BSE_SYM_MAP
+    """
+    Build all lookup maps from the instrument master in one pass.
+ 
+    Key insight: filter by `segment` not `exchange`.
+      segment == "NSE_EQ"  →  NSE equities (3005 records)
+      segment == "BSE_EQ"  →  BSE equities (4144 records)
+    The `exchange` column says "NSE" for everything NSE-related
+    (equities, F&O, currency) so it cannot be used to isolate equities.
+    """
+    global _KEY_MAP, _NSE_SYM_MAP, _BSE_SYM_MAP, _NSE_ISIN_MAP
+ 
     _KEY_MAP = dict(zip(df["instrument_key"], df["trading_symbol"]))
-    eq_df    = df[df["instrument_type"].isin(["EQ", "BE", "SM"])]
-    nse      = eq_df[eq_df["exchange"] == "NSE"]
-    bse      = eq_df[eq_df["exchange"] == "BSE"]
-    _NSE_SYM_MAP = dict(zip(nse["trading_symbol"], nse["instrument_key"]))
-    _BSE_SYM_MAP = dict(zip(bse["trading_symbol"], bse["instrument_key"]))
+ 
+    # Filter strictly by segment
+    nse = df[
+        (df["segment"] == "NSE_EQ") &
+        (df["instrument_type"].isin(["EQ", "BE", "SM"]))
+    ]
+    bse = df[
+        (df["segment"] == "BSE_EQ") &
+        (df["instrument_type"].isin(["EQ", "BE", "SM", "A", "B", "X", "XT"]))
+    ]
+ 
+    _NSE_SYM_MAP  = dict(zip(nse["trading_symbol"], nse["instrument_key"]))
+    _BSE_SYM_MAP  = dict(zip(bse["trading_symbol"], bse["instrument_key"]))
+ 
+    # ISIN map for NSE (useful for resolving .NS tickers)
+    if "isin" in nse.columns:
+        _NSE_ISIN_MAP = dict(zip(nse["isin"], nse["instrument_key"]))
+    else:
+        _NSE_ISIN_MAP = {}
+ 
+    print(f"  [instruments] NSE_EQ equities: {len(_NSE_SYM_MAP)}")
+    print(f"  [instruments] BSE_EQ equities: {len(_BSE_SYM_MAP)}")
 
 
 def get_instrument_df(force_refresh: bool = False) -> pd.DataFrame:
+    """Download and cache the Upstox instrument master (refreshes every 24h)."""
     global _INSTRUMENT_DF
     import requests
-
+ 
     cache = DATA_DIR / "instruments.parquet"
-
+ 
     if not force_refresh and _INSTRUMENT_DF is not None:
         return _INSTRUMENT_DF
-
+ 
     if not force_refresh and cache.exists():
         age_h = (dt.datetime.now().timestamp() - cache.stat().st_mtime) / 3600
         if age_h < 24:
             _INSTRUMENT_DF = pd.read_parquet(cache)
             _build_maps(_INSTRUMENT_DF)
             return _INSTRUMENT_DF
-
+ 
+    print("  [instruments] Downloading instrument master from Upstox…")
     resp = requests.get(UPSTOX_INSTR_URL, timeout=30)
     resp.raise_for_status()
+ 
     with gzip.GzipFile(fileobj=BytesIO(resp.content)) as gz:
         data = json.loads(gz.read())
-
+ 
     _INSTRUMENT_DF = pd.DataFrame(data)
     _INSTRUMENT_DF.to_parquet(cache)
     _build_maps(_INSTRUMENT_DF)
+ 
+    print(f"  [instruments] Total records: {len(_INSTRUMENT_DF)}")
     return _INSTRUMENT_DF
 
-
-def get_eq_instruments(exchanges: Tuple[str, ...] = ("NSE", "BSE")) -> pd.DataFrame:
-    """Filter instrument master for EQ/BE/SM. Upstox uses 'NSE'/'BSE'."""
+def get_eq_instruments(
+    exchanges: Tuple[str, ...] = ("NSE_EQ",)
+) -> pd.DataFrame:
+    """
+    Return equity instruments for the requested segments.
+ 
+    Parameters
+    ----------
+    exchanges : tuple of segment names, e.g. ("NSE_EQ",) or ("NSE_EQ","BSE_EQ")
+                Note: pass segment names ("NSE_EQ"), NOT exchange names ("NSE").
+ 
+    Returns
+    -------
+    DataFrame with equity instrument records including instrument_key,
+    trading_symbol, segment, instrument_type, isin (where available).
+    """
     df = get_instrument_df()
-    return df[
-        df["instrument_type"].isin(["EQ", "BE", "SM"]) &
-        df["exchange"].isin(exchanges)
-    ].copy()
+ 
+    # Equity instrument types for NSE/BSE cash segment
+    NSE_EQ_TYPES = {"EQ", "BE", "SM"}
+    BSE_EQ_TYPES = {"EQ", "BE", "SM", "A", "B", "X", "XT"}
+ 
+    frames = []
+    for seg in exchanges:
+        seg = seg.strip().upper()
+        if seg == "NSE_EQ":
+            mask = (df["segment"] == "NSE_EQ") & (df["instrument_type"].isin(NSE_EQ_TYPES))
+        elif seg == "BSE_EQ":
+            mask = (df["segment"] == "BSE_EQ") & (df["instrument_type"].isin(BSE_EQ_TYPES))
+        else:
+            # Fallback: match segment prefix
+            mask = df["segment"].str.startswith(seg)
+        frames.append(df[mask])
+ 
+    if not frames:
+        return pd.DataFrame()
+ 
+    result = pd.concat(frames, ignore_index=True).drop_duplicates(
+        subset=["instrument_key"]
+    )
+    print(f"  [get_eq_instruments] segments={exchanges} → {len(result)} instruments")
+    return result
 
 
 def instrument_key_to_symbol() -> Dict[str, str]:
@@ -149,24 +221,61 @@ def instrument_key_to_symbol() -> Dict[str, str]:
 
 
 def symbol_to_instrument_key(exchange: str = "NSE") -> Dict[str, str]:
-    """trading_symbol → instrument_key for the given exchange."""
+    """
+    trading_symbol → instrument_key.
+ 
+    Parameters
+    ----------
+    exchange : "NSE" or "BSE" (maps to NSE_EQ / BSE_EQ segment respectively)
+    """
     global _NSE_SYM_MAP, _BSE_SYM_MAP
     if _NSE_SYM_MAP is None:
         get_instrument_df()
-    return _NSE_SYM_MAP if exchange == "NSE" else (_BSE_SYM_MAP or {})
-
-
+    if exchange.upper() in ("NSE", "NSE_EQ"):
+        return _NSE_SYM_MAP or {}
+    return _BSE_SYM_MAP or {}
+ 
+ 
 def resolve_instrument_key(ticker: str) -> Optional[str]:
     """
-    Auto-resolve instrument key from a ticker like 'RELIANCE.NS' or 'RELIANCE'.
-    Tries NSE first, then BSE.
+    Auto-resolve instrument_key from a ticker like 'RELIANCE.NS' or 'RELIANCE'.
+ 
+    Resolution order:
+    1. Strip .NS / .BO suffix to get base symbol
+    2. Look up in NSE_EQ symbol map (exact match)
+    3. Look up in BSE_EQ symbol map (exact match)
+    4. Try common symbol variants (hyphen → space, etc.)
     """
-    sym = ticker.replace(".NS", "").replace(".BO", "").replace(".BSE", "").upper()
-    key = symbol_to_instrument_key("NSE").get(sym)
-    if not key:
-        key = symbol_to_instrument_key("BSE").get(sym)
-    return key
-
+    # Strip exchange suffixes
+    sym = (ticker
+           .replace(".NS", "")
+           .replace(".BO", "")
+           .replace(".BSE", "")
+           .strip()
+           .upper())
+ 
+    if _NSE_SYM_MAP is None:
+        get_instrument_df()
+ 
+    # 1. Direct NSE lookup
+    key = (_NSE_SYM_MAP or {}).get(sym)
+    if key:
+        return key
+ 
+    # 2. Direct BSE lookup
+    key = (_BSE_SYM_MAP or {}).get(sym)
+    if key:
+        return key
+ 
+    # 3. Common variant: BAJAJ-AUTO → BAJAJ-AUTO, M&M → M&M
+    # Some symbols use & which yfinance strips
+    for variant in [sym.replace("-", " "), sym.replace("&", "AND")]:
+        key = (_NSE_SYM_MAP or {}).get(variant)
+        if key:
+            return key
+ 
+    print(f"  ⚠  No instrument_key found for '{ticker}' (sym='{sym}')")
+    return None
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Local store helpers

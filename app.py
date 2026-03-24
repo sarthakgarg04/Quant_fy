@@ -27,6 +27,12 @@ Run:
 
 from __future__ import annotations
 import sys, os, json, time
+from algos.pivot_engine import (
+      extrems, detect_trend, compute_atr, tag_signals,
+      detect_trend_multiorder, compute_pivot_velocity,
+      compute_pivot_amplitude, compute_leg_ratio,
+      UPTREND_LABELS, DOWNTREND_LABELS, _trend_matches,
+  )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
@@ -70,7 +76,7 @@ from data_fetch.data_fetch import (
     UPSTOX_AUTH_URL, UPSTOX_TOKEN_URL,
 )
 from algos.pivot_engine import extrems, detect_trend, compute_atr, tag_signals
-from algos.zones        import buy_zone, sell_zone
+from algos.zones import scan_zones, buy_zone, sell_zone
 from algos.confluence   import confluence_score, measure_edge
 from algos.patterns     import detect_flag, detect_triangle, pivot_trend_strength
 from scanner            import scan_watchlist
@@ -139,33 +145,43 @@ def health(): return jsonify({"status": "ok", "version": "3.0"})
 # ─────────────────────────────────────────────────────────────────────────────
 
 # REPLACE WITH:
+
 @app.route("/api/scan")
 def scan():
-    direction     = request.args.get("direction",     "buy")
-    interval      = request.args.get("interval",      "1d")
-    order         = int(request.args.get("order",     5))
-    zone_lookback = int(request.args.get("zone_lookback",  20))
+    direction     = request.args.get("direction",      "buy")
+    interval      = request.args.get("interval",       "1d")
+    order         = int(request.args.get("order",      5))
+    zone_lookback = int(request.args.get("zone_lookback", 20))
     legout_mult   = float(request.args.get("legout_mult",  1.35))
-    trend_filter  = request.args.get("trend_filter",  "")
-
+    trend_filter  = request.args.get("trend_filter",   "")
+    strategy      = request.args.get("strategy",       "atr")
+ 
+    # Multi-order params
+    multi_order  = request.args.get("multi_order",  "false").lower() == "true"
+    order_low    = int(request.args.get("order_low",  5))
+    order_mid    = int(request.args.get("order_mid",  10))
+    order_high   = int(request.args.get("order_high", 20))
+    trend_low    = request.args.get("trend_low",  "any")
+    trend_mid    = request.args.get("trend_mid",  "any")
+    trend_high   = request.args.get("trend_high", "any")
+ 
     tf_list = [t.strip() for t in trend_filter.split(",") if t.strip()] or None
-
-    # Always use locally stored data — read directly from data_store
+ 
     stored = list_stored(interval)
     if not stored:
         return jsonify({"results": [], "count": 0,
-                        "error": f"No data stored for interval '{interval}'. Go to Data Fetch page first."})
-
+                        "error": f"No data stored for interval '{interval}'."})
+ 
     data_d = {}
     for item in stored:
         sym = item["symbol"]
         df  = load_stored_df(sym, interval)
         if df is not None and not df.empty:
             data_d[sym] = df
-
+ 
     if not data_d:
         return jsonify({"results": [], "count": 0})
-
+ 
     df_res = scan_watchlist(
         tickers=list(data_d.keys()),
         data_dict=data_d,
@@ -174,12 +190,21 @@ def scan():
         direction=direction,
         trend_filter=tf_list,
         legout_mult=legout_mult,
+        strategy=strategy,
+        multi_order=multi_order,
+        order_low=order_low,
+        order_mid=order_mid,
+        order_high=order_high,
+        trend_low=trend_low,
+        trend_mid=trend_mid,
+        trend_high=trend_high,
     )
+ 
     if df_res.empty:
         return jsonify({"results": [], "count": 0})
+ 
     records = [_sr(r) for r in df_res.to_dict(orient="records")]
     return jsonify({"results": records, "count": len(records)})
-
 
 @app.route("/api/symbols")
 def symbols():
@@ -196,50 +221,153 @@ def symbols():
 
 @app.route("/api/chart/<path:ticker>")
 def chart_data(ticker):
-    interval = request.args.get("interval", "1d")
-    days     = int(request.args.get("days",  300))
-    order    = int(request.args.get("order", 5))
-
-    # Try local store first (handles both RELIANCE and RELIANCE.NS)
+    interval         = request.args.get("interval",      "1d")
+    days             = int(request.args.get("days",       300))
+    order            = int(request.args.get("order",      5))
+    legout_mult      = float(request.args.get("legout_mult", 1.35))
+    max_base_candles = int(request.args.get("max_base",   8))
+    strategy         = request.args.get("strategy",      "atr")
+    zone_lookback    = int(request.args.get("zone_lookback", 0))
+ 
+    # Multi-order params
+    multi_order = request.args.get("multi_order", "false").lower() == "true"
+    order_low   = int(request.args.get("order_low",  5))
+    order_mid   = int(request.args.get("order_mid",  10))
+    order_high  = int(request.args.get("order_high", 20))
+ 
     df = load_stored_df(ticker, interval)
     if df is None or df.empty:
         df = fetch_ohlcv(ticker, interval=interval, days=days)
     if df is None or df.empty:
         return jsonify({"error": f"No data for {ticker}"}), 404
-
+ 
+    # Primary pivot order for chart display
     pvts  = extrems(df, order=order)
     trend = detect_trend(pvts)
-
-    pivot_list = [{"time": int(pd.Timestamp(df.index[i]).timestamp()),
-                   "value": round(v, 2), "type": t} for i, v, t in pvts]
-
-    try:   buy_raw, _ = buy_zone(df, 0, "NA")
-    except: buy_raw = []
-    try:   sell_raw = sell_zone(df, 0)
-    except: sell_raw = []
-
-    def _zones(raw, side):
+ 
+    pivot_list = [
+        {"time":  int(pd.Timestamp(df.index[i]).timestamp()),
+         "value": round(v, 2), "type": t}
+        for i, v, t in pvts
+    ]
+ 
+    # Zone scanning
+    include_atr    = strategy in ("atr",  "both")
+    include_consol = strategy in ("consolidation", "both")
+    start_idx      = max(0, len(df) - zone_lookback) if zone_lookback > 0 else 0
+ 
+    try:
+        buy_zones_raw = scan_zones(
+            df, direction="buy",
+            legout_mult=legout_mult,
+            max_base_candles=max_base_candles,
+            start_idx=start_idx,
+            include_atr=include_atr,
+            include_consolidation=include_consol,
+        )
+    except Exception as e:
+        print(f"[chart] buy scan_zones error for {ticker}: {e}")
+        buy_zones_raw = []
+ 
+    try:
+        sell_zones_raw = scan_zones(
+            df, direction="sell",
+            legout_mult=legout_mult,
+            max_base_candles=max_base_candles,
+            start_idx=start_idx,
+            include_atr=include_atr,
+            include_consolidation=include_consol,
+        )
+    except Exception as e:
+        print(f"[chart] sell scan_zones error for {ticker}: {e}")
+        sell_zones_raw = []
+ 
+    def _serialise_zones(zones):
         out = []
-        for z in raw:
+        for z in zones:
             try:
-                ts0 = pd.Timestamp(z[0]); ts1 = pd.Timestamp(z[1])
-                li  = df.index.get_indexer([ts0], method="nearest")[0]
-                out.append({"time_start": int(ts0.timestamp()),
-                             "time_end":   int(ts1.timestamp()),
-                             "price_high": round(float(df["High"].iloc[li]), 2),
-                             "price_low":  round(float(df["Low"].iloc[li]),  2),
-                             "side": side})
-            except: pass
+                out.append({
+                    "time_start":      int(pd.Timestamp(z["time_start"]).timestamp()),
+                    "time_end":        int(pd.Timestamp(z["time_end"]).timestamp()),
+                    "price_high":      z["price_high"],
+                    "price_low":       z["price_low"],
+                    "zone_type":       z.get("zone_type",       "rbr"),
+                    "status":          z.get("status",          "fresh"),
+                    "base_bars":       z.get("base_bars",        0),
+                    "legout_strength": z.get("legout_strength",  0.0),
+                    "vol_score":       z.get("vol_score",        0.0),
+                })
+            except Exception:
+                pass
         return out
-
-    return jsonify({
-        "ticker": ticker, "interval": interval,
-        "candles": _candles(df),
-        "pivots":  pivot_list,
-        "buy_zones":  _zones(buy_raw,  "buy"),
-        "sell_zones": _zones(sell_raw, "sell"),
-        "trend": trend,
-    })
+ 
+    # Multi-order analysis
+    multiorder_data = None
+    if multi_order:
+        try:
+            mo = detect_trend_multiorder(
+                df,
+                order_low=order_low,
+                order_mid=order_mid,
+                order_high=order_high,
+            )
+ 
+            def _mo_level(lv):
+                v = mo[lv]
+                vel = v["velocity"]
+                amp = v["amplitude"]
+                lr  = v["leg_ratio"]
+                return {
+                    "order":        v["order"],
+                    "trend":        v["trend"],
+                    "score":        v["score"],
+                    "pivot_count":  v["pivot_count"],
+                    "velocity": {
+                        "current_vel":  vel["current_vel"],
+                        "avg_velocity": vel["avg_velocity"],
+                        "acceleration": vel["acceleration"],
+                        "accel_label":  vel["accel_label"],
+                        "trend_vel":    vel["trend_vel"],
+                    },
+                    "amplitude": {
+                        "avg_amplitude":   amp["avg_amplitude"],
+                        "recent_avg":      amp["recent_avg"],
+                        "regime":          amp["regime"],
+                        "variance_pct":    amp["variance_pct"],
+                        "amplitude_trend": amp["amplitude_trend"],
+                    },
+                    "leg_ratio": {
+                        "ratio":        lr["ratio"],
+                        "recent_ratio": lr["recent_ratio"],
+                        "avg_bull":     lr["avg_bull"],
+                        "avg_bear":     lr["avg_bear"],
+                        "label":        lr["label"],
+                    },
+                }
+ 
+            multiorder_data = {
+                "low":            _mo_level("low"),
+                "mid":            _mo_level("mid"),
+                "high":           _mo_level("high"),
+                "alignment":      mo["alignment"],
+                "combined_trend": mo["combined_trend"],
+            }
+        except Exception as e:
+            print(f"[chart] multiorder error for {ticker}: {e}")
+ 
+    payload = {
+        "ticker":     ticker,
+        "interval":   interval,
+        "candles":    _candles(df),
+        "pivots":     pivot_list,
+        "buy_zones":  _serialise_zones(buy_zones_raw),
+        "sell_zones": _serialise_zones(sell_zones_raw),
+        "trend":      trend,
+    }
+    if multiorder_data:
+        payload["multiorder"] = multiorder_data
+ 
+    return jsonify(payload)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -248,51 +376,71 @@ def chart_data(ticker):
 
 @app.route("/api/trend/<path:ticker>", methods=["GET"])
 def trend_get(ticker): return _trend(ticker, request.args)
-
+ 
 @app.route("/api/trend", methods=["POST"])
 def trend_post():
     body = request.get_json(force=True, silent=True) or {}
     return _trend(body.get("ticker", ""), body)
 
+
 def _trend(ticker, params):
     if not ticker:
         return jsonify({"error": "ticker required"}), 400
-
+ 
     interval    = params.get("interval",          "1d")
     days        = int(params.get("days",           500))
     order       = int(params.get("order",          5))
     min_str_pct = float(params.get("min_strength_pct", 0))
     atr_mult    = float(params.get("atr_mult",     0.0))
-
+ 
+    # Multi-order params
+    multi_order = str(params.get("multi_order", "false")).lower() == "true"
+    order_low   = int(params.get("order_low",  order))
+    order_mid   = int(params.get("order_mid",  order * 2))
+    order_high  = int(params.get("order_high", order * 4))
+ 
     df = fetch_ohlcv(ticker, interval=interval, days=days)
     if df.empty:
         return jsonify({"error": f"No data for {ticker}"}), 404
-
+ 
     last_price = float(df["Close"].iloc[-1])
     min_str    = last_price * min_str_pct / 100 if min_str_pct > 0 else 0.0
-
+ 
     pvts     = extrems(df, order=order, min_strength=min_str,
                        min_strength_atr_mult=atr_mult)
     trend    = detect_trend(pvts)
+ 
+    from algos.patterns import pivot_trend_strength
     strength = pivot_trend_strength(pvts)
-
+ 
     try:   cscore = confluence_score(df, order=order)
     except: cscore = {}
-
-    pivot_list = [{"time": int(pd.Timestamp(df.index[i]).timestamp()),
-                   "value": round(v, 2), "type": t, "bar": int(i)}
-                  for i, v, t in pvts]
-
+ 
+    pivot_list = [
+        {"time":  int(pd.Timestamp(df.index[i]).timestamp()),
+         "value": round(v, 2), "type": t, "bar": int(i)}
+        for i, v, t in pvts
+    ]
+ 
     tagged = tag_signals(df, pvts[-30:])
     try:   edge = measure_edge(tagged).to_dict(orient="records")
     except: edge = []
-
+ 
     atr_s = compute_atr(df)
-    atr_l = [{"time": int(pd.Timestamp(ts).timestamp()), "value": round(float(v), 4)}
-             for ts, v in zip(df.index, atr_s) if not np.isnan(v)]
-
-    return jsonify({
-        "ticker": ticker, "interval": interval, "last_price": round(last_price, 2),
+    atr_l = [
+        {"time": int(pd.Timestamp(ts).timestamp()), "value": round(float(v), 4)}
+        for ts, v in zip(df.index, atr_s) if not np.isnan(v)
+    ]
+ 
+    # ── Velocity, amplitude, leg ratio on primary order ───────────────
+    vel = compute_pivot_velocity(pvts)
+    amp = compute_pivot_amplitude(pvts)
+    lr  = compute_leg_ratio(pvts)
+ 
+    payload = {
+        "ticker":         ticker,
+        "interval":       interval,
+        "last_price":     round(last_price, 2),
         "trend":          trend,
         "pivot_count":    len(pvts),
         "trend_strength": _sr(strength),
@@ -301,7 +449,73 @@ def _trend(ticker, params):
         "candles":        _candles(df),
         "atr":            atr_l[-200:],
         "edge":           [_sr(r) for r in edge],
-    })
+        "velocity": {
+            "current_vel":  vel["current_vel"],
+            "avg_velocity": vel["avg_velocity"],
+            "acceleration": vel["acceleration"],
+            "accel_label":  vel["accel_label"],
+            "trend_vel":    vel["trend_vel"],
+        },
+        "amplitude": {
+            "avg_amplitude":   amp["avg_amplitude"],
+            "recent_avg":      amp["recent_avg"],
+            "regime":          amp["regime"],
+            "variance_pct":    amp["variance_pct"],
+        },
+        "leg_ratio": {
+            "ratio":        lr["ratio"],
+            "recent_ratio": lr["recent_ratio"],
+            "avg_bull":     lr["avg_bull"],
+            "avg_bear":     lr["avg_bear"],
+            "label":        lr["label"],
+        },
+    }
+ 
+    # ── Multi-order (replaces HTF score) ──────────────────────────────
+    if multi_order:
+        try:
+            mo = detect_trend_multiorder(
+                df,
+                order_low=order_low,
+                order_mid=order_mid,
+                order_high=order_high,
+            )
+            payload["multiorder"] = {
+                "low":  {
+                    "order": mo["low"]["order"],
+                    "trend": mo["low"]["trend"],
+                    "score": mo["low"]["score"],
+                    "velocity":  mo["low"]["velocity"],
+                    "amplitude": mo["low"]["amplitude"],
+                    "leg_ratio": mo["low"]["leg_ratio"],
+                },
+                "mid":  {
+                    "order": mo["mid"]["order"],
+                    "trend": mo["mid"]["trend"],
+                    "score": mo["mid"]["score"],
+                    "velocity":  mo["mid"]["velocity"],
+                    "amplitude": mo["mid"]["amplitude"],
+                    "leg_ratio": mo["mid"]["leg_ratio"],
+                },
+                "high": {
+                    "order": mo["high"]["order"],
+                    "trend": mo["high"]["trend"],
+                    "score": mo["high"]["score"],
+                    "velocity":  mo["high"]["velocity"],
+                    "amplitude": mo["high"]["amplitude"],
+                    "leg_ratio": mo["high"]["leg_ratio"],
+                },
+                "alignment":      mo["alignment"],
+                "combined_trend": mo["combined_trend"],
+            }
+            # Override htf_score in confluence with alignment score
+            if "confluence" in payload and payload["confluence"]:
+                payload["confluence"]["htf_score"] = mo["alignment"] / 3.0
+                payload["confluence"]["htf_trend"] = mo["combined_trend"]
+        except Exception as e:
+            print(f"[trend] multiorder error: {e}")
+ 
+    return jsonify(payload)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -404,35 +618,57 @@ def fetch_stream():
     universe_str = request.args.get("universe", "NSE_EQ")
     wl_name      = request.args.get("wl",       "nifty50")
     force        = request.args.get("force",    "false").lower() == "true"
-
+ 
     def generate():
         yield _sse({"type": "info", "message": f"Starting {src} fetch — {tf}"})
-
+ 
         if src == "upstox":
             token = load_token()
             if not token:
-                yield _sse({"type": "error", "message": "No Upstox token. Authenticate first."}); return
+                yield _sse({"type": "error", "message": "No Upstox token. Authenticate first."})
+                return
             ok, _ = is_token_valid(token)
             if not ok:
-                yield _sse({"type": "error", "message": "Token expired. Re-authenticate."}); return
-
+                yield _sse({"type": "error", "message": "Token expired. Re-authenticate."})
+                return
+ 
             yield _sse({"type": "info", "message": "Downloading instrument master…"})
             try:
-                exch    = tuple(e.strip() for e in universe_str.split(","))
-                instr   = get_eq_instruments(exch)
-                keys    = instr["instrument_key"].tolist()
-                yield _sse({"type": "info", "message": f"Found {len(keys)} instruments in {universe_str}"})
+                # ── FIX: pass segment names directly, force refresh of cache ──
+                segments = tuple(e.strip() for e in universe_str.split(","))
+                instr    = get_eq_instruments(segments)      # now filters by segment correctly
+                keys     = instr["instrument_key"].tolist()
+                yield _sse({
+                    "type":    "info",
+                    "message": f"Found {len(keys)} instruments in {universe_str}"
+                })
             except Exception as e:
-                yield _sse({"type": "error", "message": f"Instrument fetch failed: {e}"}); return
-
+                yield _sse({"type": "error", "message": f"Instrument fetch failed: {e}"})
+                return
+ 
+            if not keys:
+                yield _sse({
+                    "type":    "error",
+                    "message": f"0 instruments found for {universe_str}. "
+                               f"Try refreshing — delete data_store/instruments.parquet "
+                               f"and fetch again."
+                })
+                return
+ 
             ok_n = err_n = 0
             for done, total, sym, ok in fetch_upstox_batch_iter(keys, tf, token):
                 if ok: ok_n += 1
                 else:  err_n += 1
-                yield _sse({"type":"progress","done":done,"total":total,"symbol":sym,"ok":ok})
-
-            yield _sse({"type":"done","ok_count":ok_n,"err_count":err_n,"interval":tf,"total":ok_n+err_n})
-
+                yield _sse({
+                    "type": "progress", "done": done, "total": total,
+                    "symbol": sym, "ok": ok,
+                })
+ 
+            yield _sse({
+                "type": "done", "ok_count": ok_n, "err_count": err_n,
+                "interval": tf, "total": ok_n + err_n,
+            })
+ 
         else:  # yfinance
             tickers = get_watchlist(wl_name)
             total   = len(tickers)
@@ -442,17 +678,29 @@ def fetch_stream():
                 try:
                     df = fetch_ohlcv(t, interval=tf, force_refresh=force)
                     ok = not df.empty
-                except Exception: ok = False
+                except Exception:
+                    ok = False
                 if ok: ok_n += 1
                 else:  err_n += 1
-                yield _sse({"type":"progress","done":i,"total":total,"symbol":t,"ok":ok})
+                yield _sse({
+                    "type": "progress", "done": i, "total": total,
+                    "symbol": t, "ok": ok,
+                })
                 time.sleep(0.05)
-            yield _sse({"type":"done","ok_count":ok_n,"err_count":err_n,"interval":tf,"total":total})
-
-    return Response(stream_with_context(generate()),
-                    mimetype="text/event-stream",
-                    headers={"Cache-Control":"no-cache","X-Accel-Buffering":"no","Connection":"keep-alive"})
-
+            yield _sse({
+                "type": "done", "ok_count": ok_n, "err_count": err_n,
+                "interval": tf, "total": total,
+            })
+ 
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control":    "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection":       "keep-alive",
+        },
+    )
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Data Fetch – local store API

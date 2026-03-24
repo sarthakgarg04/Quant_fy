@@ -54,7 +54,7 @@
     <div>
       <div class="sec-title" style="margin-bottom:8px">Symbol</div>
       <div style="display:flex;gap:8px">
-        <input type="text" id="tkr" class="ctrl" placeholder="RELIANCE.NS"
+        <input type="text" id="tkr" class="ctrl" placeholder="RELIANCE"
                style="flex:1;font-size:14px;font-weight:600;letter-spacing:.4px"
                onkeydown="if(event.key==='Enter')analyse()">
         <button class="btn btn-primary btn-sm" onclick="analyse()">Go</button>
@@ -91,18 +91,67 @@
       <input type="number" id="atr" class="ctrl" value="0.0" step="0.1" min="0" max="5">
     </div>
 
+
+    <div class="divider"></div>
+    <div class="sec-title" style="margin-bottom:8px">Multi-Order Analysis</div>
+    
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <input type="checkbox" id="tv-mo-enable"
+            style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer"
+            onchange="tvToggleMO(this.checked)">
+      <label for="tv-mo-enable" style="font-size:12px;cursor:pointer">Enable Multi-Order</label>
+    </div>
+    
+    <div id="tv-mo-inputs" style="display:flex;flex-direction:column;gap:8px;opacity:.35;pointer-events:none">
+      <div class="field">
+        <label class="ctrl-label">High Order</label>
+        <input type="number" id="tv-mo-high" class="ctrl" value="20" min="1" max="100">
+      </div>
+      <div class="field">
+        <label class="ctrl-label">Mid Order</label>
+        <input type="number" id="tv-mo-mid" class="ctrl" value="10" min="1" max="60">
+      </div>
+      <div class="field">
+        <label class="ctrl-label">Low Order</label>
+        <input type="number" id="tv-mo-low" class="ctrl" value="5" min="1" max="30">
+      </div>
+    </div>
+
     <button class="btn btn-primary" id="abtn" onclick="analyse()">Analyse</button>
 
     <div class="divider"></div>
 
     <!-- Results -->
     <div id="res" style="display:none;flex-direction:column;gap:12px">
+ 
+      <!-- Trend label -->
       <div id="tdisp" class="trend-display tco">–</div>
+    
+      <!-- Core stats grid -->
       <div class="stat-grid" id="sgs"></div>
+    
+      <!-- ── Multi-Order Breakdown (replaces HTF score) ── -->
+      <div id="tv-mo-section" style="display:none">
+        <div class="sec-title" style="margin-bottom:8px">
+          Multi-Order Breakdown
+          <span id="tv-mo-align-dots" style="margin-left:8px;color:var(--amber);font-size:11px"></span>
+        </div>
+        <div id="tv-mo-bars" style="display:flex;flex-direction:column;gap:6px"></div>
+      </div>
+    
+      <!-- Velocity / Amplitude / Leg Ratio -->
+      <div>
+        <div class="sec-title" style="margin-bottom:8px">Structure Metrics</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px" id="tv-struct-grid"></div>
+      </div>
+    
+      <!-- Confluence bars (original — HTF bar now replaced by MO) -->
       <div>
         <div class="sec-title" style="margin-bottom:8px">Confluence Breakdown</div>
         <div id="cbars"></div>
       </div>
+    
+      <!-- Edge table -->
       <div>
         <div class="sec-title" style="margin-bottom:8px">Edge Measurement</div>
         <table class="etable">
@@ -111,7 +160,7 @@
         </table>
       </div>
     </div>
-  </div>
+      </div>
 
   <!-- ── Chart area ── -->
   <div class="chart-area">
@@ -142,6 +191,16 @@
 
 <script>
 renderNav('trend');
+function tvToggleMO(enabled) {
+  const inp = document.getElementById('tv-mo-inputs');
+  inp.style.opacity      = enabled ? '1'    : '.35';
+  inp.style.pointerEvents = enabled ? 'auto' : 'none';
+  // Save state
+  saveState({ tv_mo_enable: enabled,
+    tv_mo_high: G('tv-mo-high').value,
+    tv_mo_mid:  G('tv-mo-mid').value,
+    tv_mo_low:  G('tv-mo-low').value });
+}
 
 const API = '/api';
 let chart=null, cs=null, pls=null, curTicker=null;
@@ -189,23 +248,38 @@ async function analyse() {
   const ticker = (G('tkr').value||'').trim().toUpperCase();
   if (!ticker) return;
   curTicker = ticker;
-
-  // Save state
+ 
+  const moEnabled = G('tv-mo-enable').checked;
+ 
   saveState({
-    trend_tkr: ticker, trend_tfs: G('tfs').value,
-    trend_days: G('days').value, trend_ord: G('ord').value,
-    trend_msp: G('msp').value, trend_atr: G('atr').value,
+    trend_tkr:  ticker,
+    trend_tfs:  G('tfs').value,
+    trend_days: G('days').value,
+    trend_ord:  G('ord').value,
+    trend_msp:  G('msp').value,
+    trend_atr:  G('atr').value,
+    tv_mo_enable: moEnabled,
+    tv_mo_high:   G('tv-mo-high').value,
+    tv_mo_mid:    G('tv-mo-mid').value,
+    tv_mo_low:    G('tv-mo-low').value,
   });
-
+ 
   const params = new URLSearchParams({
-    interval: G('tfs').value, days: G('days').value,
-    order: G('ord').value, min_strength_pct: G('msp').value, atr_mult: G('atr').value,
+    interval:          G('tfs').value,
+    days:              G('days').value,
+    order:             G('ord').value,
+    min_strength_pct:  G('msp').value,
+    atr_mult:          G('atr').value,
+    multi_order:       moEnabled,
+    order_low:         G('tv-mo-low').value,
+    order_mid:         G('tv-mo-mid').value,
+    order_high:        G('tv-mo-high').value,
   });
-
+ 
   G('ov').classList.add('visible');
   G('abtn').disabled = true;
   if (!chart) initChart();
-
+ 
   try {
     const r = await fetch(`${API}/trend/${encodeURIComponent(ticker)}?${params}`);
     const d = await r.json();
@@ -215,7 +289,7 @@ async function analyse() {
     G('ch-t').textContent = ticker;
     G('ch-p').textContent = '₹' + (d.last_price||'–');
     const tb = G('ch-tb');
-    tb.textContent = (d.trend||'').replace(/_/g,' ');
+    tb.textContent  = (d.trend||'').replace(/_/g,' ');
     tb.style.cssText = `font-size:11px;padding:2px 10px;border-radius:99px;${trendHeaderStyle(d.trend)}`;
   } catch(e) { alert('Error: ' + e.message); }
   finally {
@@ -226,30 +300,95 @@ async function analyse() {
 
 function renderResults(d) {
   const res = G('res');
-  res.style.display = 'flex'; res.style.flexDirection = 'column'; res.style.gap = '12px';
-
-  const td = G('tdisp');
+  res.style.display = 'flex'; res.style.flexDirection='column'; res.style.gap='12px';
+ 
+  const td  = G('tdisp');
   td.textContent = (d.trend||'–').replace(/_/g,' ');
   const cls = UP_TRENDS.has(d.trend)?'tup':DN_TRENDS.has(d.trend)?'tdn':'tco';
-  td.className = 'trend-display ' + cls;
-
-  const c=d.confluence||{}, ts=d.trend_strength||{};
+  td.className   = 'trend-display ' + cls;
+ 
+  const c  = d.confluence  || {};
+  const ts = d.trend_strength || {};
+ 
   G('sgs').innerHTML = [
-    ['Confluence', pct(c.score)],['ATR %', (c.atr_pct||0).toFixed(2)+'%'],
-    ['Trend Str.', ts.classification||'–'],['Pivots', d.pivot_count||0],
-    ['Vol Score',  pct(c.vol_score)], ['HTF Score', pct(c.htf_score)],
+    ['Confluence', pct(c.score)],
+    ['ATR %',      (c.atr_pct||0).toFixed(2)+'%'],
+    ['Trend Str.', ts.classification||'–'],
+    ['Pivots',     d.pivot_count||0],
+    ['Vol Score',  pct(c.vol_score)],
+    ['Zone Score', pct(c.zone_score)],
   ].map(([l,v])=>`<div class="stat"><div class="stat-l">${l}</div><div class="stat-v">${v}</div></div>`).join('');
-
-  G('cbars').innerHTML = [
-    ['Trend',c.trend_score||0,'#3b82f6'],
-    ['Zone', c.zone_score ||0,'#22c55e'],
-    ['HTF',  c.htf_score  ||0,'#a78bfa'],
-    ['Vol',  c.vol_score  ||0,'#f59e0b'],
-  ].map(([l,v,col])=>`<div class="cbar">
-    <div class="cbar-row"><span>${l}</span><span>${Math.round(v*100)}%</span></div>
+ 
+  // ── Structure metrics (velocity / amplitude / leg ratio) ───────────
+  const vel = d.velocity  || {};
+  const amp = d.amplitude || {};
+  const lr  = d.leg_ratio || {};
+  const velSign = (vel.current_vel||0) >= 0 ? '+' : '';
+  const accelIcon = vel.accel_label==='accelerating'?'↑':vel.accel_label==='decelerating'?'↓':'→';
+ 
+  G('tv-struct-grid').innerHTML = [
+    ['Velocity',     `${velSign}${vel.current_vel??'–'} pts/bar`, `${accelIcon} ${vel.accel_label||'–'}`],
+    ['Avg Velocity', `${vel.avg_velocity??'–'}`, `trend net: ${vel.trend_vel??'–'}`],
+    ['Amplitude',    `${amp.avg_amplitude??'–'} avg`, amp.regime||'–'],
+    ['Recent Amp',   `${amp.recent_avg??'–'}`,   `${amp.variance_pct??'–'}% variance`],
+    ['Leg Ratio',    `${lr.ratio??'–'}×`,         (lr.label||'–').replace(/_/g,' ')],
+    ['Recent Ratio', `${lr.recent_ratio??'–'}×`,  `Bull ${lr.avg_bull??'–'} / Bear ${lr.avg_bear??'–'}`],
+  ].map(([l,v,s])=>`
+    <div class="stat">
+      <div class="stat-l">${l}</div>
+      <div class="stat-v">${v}</div>
+      ${s?`<div style="font-size:10px;color:var(--muted);margin-top:1px">${s}</div>`:''}
+    </div>`).join('');
+ 
+  // ── Multi-order breakdown ──────────────────────────────────────────
+  const moSec = G('tv-mo-section');
+  const mo    = d.multiorder;
+  if (mo) {
+    moSec.style.display = 'block';
+    const alignStr = '●'.repeat(mo.alignment||0)+'○'.repeat(3-(mo.alignment||0));
+    G('tv-mo-align-dots').textContent = `${alignStr} ${mo.alignment}/3 · ${(mo.combined_trend||'').replace(/_/g,' ')}`;
+ 
+    G('tv-mo-bars').innerHTML = ['high','mid','low'].map(lv => {
+      const lv_d  = mo[lv] || {};
+      const t     = lv_d.trend || '–';
+      const s     = lv_d.score ?? 0;
+      const pctW  = Math.round((s + 1) / 2 * 100);
+      const col   = trendHeaderStyle(t).match(/color:([^;]+)/)?.[1] || '#8892a0';
+      const v_d   = lv_d.velocity   || {};
+      const a_d   = lv_d.amplitude  || {};
+      const lr_d  = lv_d.leg_ratio  || {};
+      return `
+      <div style="margin-bottom:8px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">
+          <span style="font-size:11px;font-weight:700;color:${col}">${lv.toUpperCase()}(${lv_d.order})</span>
+          <span style="font-size:11px;color:${col}">${t.replace(/_/g,' ')}</span>
+          <span style="font-size:10px;color:var(--muted)">${pctW}%</span>
+        </div>
+        <div class="cbar-track"><div class="cbar-fill" style="width:${pctW}%;background:${col}"></div></div>
+        <div style="display:flex;gap:12px;margin-top:4px;font-size:10px;color:var(--muted)">
+          <span>Vel: ${v_d.current_vel??'–'}</span>
+          <span>Amp: ${a_d.avg_amplitude??'–'}</span>
+          <span>LR: ${lr_d.ratio??'–'}× ${(lr_d.label||'').replace(/_/g,' ')}</span>
+        </div>
+      </div>`;
+    }).join('');
+  } else {
+    moSec.style.display = 'none';
+  }
+ 
+  // ── Confluence bars — replace HTF row if MO available ─────────────
+  const cbarItems = [
+    ['Trend', c.trend_score||0, '#3b82f6'],
+    ['Zone',  c.zone_score ||0, '#22c55e'],
+    ['HTF',   mo ? (mo.alignment/3) : (c.htf_score||0), mo ? '#f59e0b' : '#a78bfa'],
+    ['Vol',   c.vol_score  ||0, '#f59e0b'],
+  ];
+  G('cbars').innerHTML = cbarItems.map(([l,v,col])=>`<div class="cbar">
+    <div class="cbar-row"><span>${l}${mo&&l==='HTF'?' (alignment)':''}</span><span>${Math.round(v*100)}%</span></div>
     <div class="cbar-track"><div class="cbar-fill" style="width:${Math.round(v*100)}%;background:${col}"></div></div>
   </div>`).join('');
-
+ 
+  // Edge table (unchanged)
   G('etb').innerHTML = (d.edge?.length) ? d.edge.map(r=>`<tr>
     <td style="color:${r.type==='B'?'var(--green)':'var(--red)'}">${r.type==='B'?'Bull':'Bear'}</td>
     <td>${r.horizon}b</td><td>${r.n}</td>
@@ -259,6 +398,18 @@ function renderResults(d) {
   </tr>`).join('')
   : '<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:10px">Not enough pivot history</td></tr>';
 }
+ 
+// Restore MO state
+(function restoreMO() {
+  const s = loadState();
+  if (s.tv_mo_enable) {
+    G('tv-mo-enable').checked = s.tv_mo_enable;
+    tvToggleMO(s.tv_mo_enable);
+  }
+  if (s.tv_mo_high) G('tv-mo-high').value = s.tv_mo_high;
+  if (s.tv_mo_mid)  G('tv-mo-mid').value  = s.tv_mo_mid;
+  if (s.tv_mo_low)  G('tv-mo-low').value  = s.tv_mo_low;
+})();
 
 async function qtf(t, btn) {
   G('tfs').value = t;
