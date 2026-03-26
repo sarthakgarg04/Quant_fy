@@ -4,904 +4,1281 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Scanner – QuantScanner</title>
-<link rel="stylesheet" href="/shared.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
-<script src="/shared.js"></script>
 <style>
-.main      { display:flex; height:calc(100vh - 50px); overflow:hidden; }
-
-/* ── Sidebar ── */
-.sidebar   { width:420px; min-width:320px; background:var(--surface); border-right:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; }
-.controls  { padding:12px 14px; border-bottom:1px solid var(--border); display:flex; flex-direction:column; gap:8px; overflow-y:auto; max-height:55vh; }
-.ctrl-row  { display:flex; gap:6px; align-items:flex-end; flex-wrap:wrap; }
-.ctrl-label{ font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; margin-bottom:2px; }
-.sec-divider { font-size:9px; color:var(--accent); text-transform:uppercase; letter-spacing:.8px; padding:4px 0 2px; border-top:1px solid var(--border); margin-top:4px; font-weight:700; }
-
-/* Multi-order section */
-.mo-section { background:var(--s2); border-radius:var(--r2); padding:10px; display:flex; flex-direction:column; gap:8px; border:1px solid var(--border); }
-.mo-row     { display:grid; grid-template-columns:70px 70px 1fr; gap:6px; align-items:end; }
-.mo-label   { font-size:10px; font-weight:700; padding:3px 7px; border-radius:4px; }
-.mo-low     { background:#134e4a; color:#99f6e4; }
-.mo-mid     { background:#1e3a5f; color:#93c5fd; }
-.mo-high    { background:#2e1065; color:#ddd6fe; }
-.mo-disabled{ opacity:.35; pointer-events:none; }
-
-/* Trend dropdown for multi-order */
-.trend-sel  { background:var(--s2); color:var(--text); border:1px solid var(--border); border-radius:var(--r); padding:5px 8px; font-size:11px; width:100%; outline:none; }
-.trend-sel:focus { border-color:var(--accent); }
-
-/* ── List ── */
-.list-hdr  { padding:6px 14px; border-bottom:1px solid var(--border); display:grid; grid-template-columns:1fr 70px 90px 60px; gap:4px; flex-shrink:0; }
-.list-hdr span { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; }
-.stock-list{ flex:1; overflow-y:auto; }
-
-/* Stock rows */
-.si {
-  border-bottom:1px solid var(--border); cursor:pointer;
-  transition:background .1s;
+/* ════════════════════════════════════════════════
+   DESIGN TOKENS — exactly matching shared.css
+   --bg       #0d0f12   (body)
+   --surface  #161a20   (panels/nav)
+   --s2       #1e2530   (cards)
+   --s3       #252d3a   (hover/active)
+   --border   #2a3040
+   --text     #e2e8f0
+   --muted    #8892a0
+   --accent   #3b82f6
+   --green    #22c55e
+   --red      #ef4444
+   --amber    #f59e0b
+   --purple   #a78bfa
+════════════════════════════════════════════════ */
+:root {
+  --bg:      #0d0f12;
+  --surf:    #161a20;
+  --s2:      #1e2530;
+  --s3:      #252d3a;
+  --s4:      #2d3748;
+  --border:  #2a3040;
+  --border2: #3a4555;
+  --text:    #e2e8f0;
+  --muted:   #8892a0;
+  --muted2:  #5a6470;
+  --accent:  #3b82f6;
+  --accentd: #2563eb;
+  --green:   #22c55e;
+  --greend:  #16a34a;
+  --red:     #ef4444;
+  --amber:   #f59e0b;
+  --purple:  #a78bfa;
+  --teal:    #2dd4bf;
+  --nav-h:   50px;
+  --sb-w:    296px;
+  --dw-w:    380px;
+  --mono:    'IBM Plex Mono', monospace;
+  --sans:    'IBM Plex Sans', system-ui, sans-serif;
+  --r:       6px;
+  --r2:      8px;
 }
-.si-main {
-  padding:9px 14px; display:grid;
-  grid-template-columns:1fr 70px 90px 60px; gap:4px; align-items:center;
+
+*,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }
+html,body { height:100vh; overflow:hidden; }
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
 }
-.si:hover .si-main { background:var(--s2); }
-.si.active .si-main { background:#1a2640; border-left:3px solid var(--accent); padding-left:11px; }
-.si.expanded { background:var(--s2); }
 
-.sname  { font-weight:600; font-size:13px; }
-.smeta  { font-size:10px; color:var(--muted); margin-top:1px; }
-.sprice { text-align:right; font-weight:600; font-size:13px; }
-.szone  { font-size:10px; color:var(--green); text-align:right; }
-
-/* Expanded detail panel */
-.si-detail {
-  padding:10px 14px 12px;
-  border-top:1px solid var(--border);
-  display:none;
-  flex-direction:column;
-  gap:10px;
-  background:#0f1318;
+/* ════════════════════════════════════════════════
+   NAV  (identical to shared.css #qs-nav)
+════════════════════════════════════════════════ */
+#nav {
+  height: var(--nav-h);
+  background: var(--surf);
+  border-bottom: 1px solid var(--border);
+  position: fixed; top:0; left:0; right:0; z-index:500;
+  display: flex; align-items: center;
+  padding: 0 20px; gap: 4px;
 }
-.si.expanded .si-detail { display:flex; }
-
-.det-section { display:flex; flex-direction:column; gap:4px; }
-.det-title   { font-size:9px; color:var(--accent); text-transform:uppercase; letter-spacing:.6px; font-weight:700; margin-bottom:2px; }
-
-/* Multi-order breakdown bars */
-.mo-bar-row  { display:flex; align-items:center; gap:6px; margin-bottom:3px; }
-.mo-bar-lbl  { font-size:10px; width:52px; flex-shrink:0; }
-.mo-bar-trend{ font-size:10px; width:110px; flex-shrink:0; color:var(--text); }
-.mo-bar-track{ flex:1; height:6px; background:var(--border); border-radius:3px; overflow:hidden; }
-.mo-bar-fill { height:100%; border-radius:3px; }
-
-/* Metrics grid in detail */
-.det-grid    { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; }
-.det-tile    { background:var(--surface); border-radius:5px; padding:6px 8px; border:1px solid var(--border); }
-.det-tile-l  { font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; }
-.det-tile-v  { font-size:12px; font-weight:600; margin-top:2px; }
-.det-tile-s  { font-size:10px; color:var(--muted); margin-top:1px; }
-
-/* Trend multi-select (existing) */
-.trend-select-wrap { position:relative; }
-.trend-dropdown {
-  position:absolute; top:calc(100% + 4px); left:0; right:0; z-index:200;
-  background:var(--surface); border:1px solid var(--border); border-radius:var(--r2);
-  max-height:260px; overflow-y:auto; display:none; box-shadow:0 8px 24px rgba(0,0,0,.4);
+.nav-logo {
+  display:flex; align-items:center; gap:8px;
+  font-size:15px; font-weight:600; color:#fff;
+  text-decoration:none; margin-right:12px; letter-spacing:.3px;
 }
-.trend-dropdown.open { display:block; }
-.trend-opt { display:flex; align-items:center; gap:8px; padding:7px 12px; cursor:pointer; font-size:12px; transition:background .1s; }
-.trend-opt:hover { background:var(--s2); }
-.trend-opt input[type=checkbox] { accent-color:var(--accent); width:14px; height:14px; flex-shrink:0; }
-.trend-trigger {
-  width:100%; background:var(--s2); color:var(--text);
-  border:1px solid var(--border); border-radius:var(--r);
-  padding:6px 10px; font-size:12px; text-align:left; cursor:pointer;
-  display:flex; justify-content:space-between; align-items:center;
+.nav-logo-icon {
+  width:28px; height:28px; border-radius:7px;
+  background:linear-gradient(135deg,var(--accent),var(--teal));
+  display:flex; align-items:center; justify-content:center; font-size:14px;
 }
-.trend-trigger:hover { border-color:var(--muted); }
-.trend-trigger .arrow { font-size:9px; color:var(--muted); }
+.nav-link {
+  padding:5px 13px; border-radius:var(--r); font-size:13px;
+  font-weight:400; color:var(--muted); text-decoration:none; transition:all .12s;
+}
+.nav-link:hover { background:var(--s2); color:var(--text); }
+.nav-link.active { background:var(--s2); color:var(--text); font-weight:500; }
+.nav-spacer { flex:1; }
+.nav-dot-wrap {
+  display:flex; align-items:center; gap:5px;
+  font-size:11px; color:var(--muted2); font-family:var(--mono); margin-right:10px;
+}
+.nav-live {
+  width:6px; height:6px; border-radius:50%;
+  background:var(--green); animation:pulse 2s ease infinite;
+}
+@keyframes pulse { 0%,100%{opacity:1}60%{opacity:.35} }
+.nav-badge {
+  display:none; padding:3px 10px; border-radius:99px;
+  font-size:11px; font-family:var(--mono); font-weight:600;
+  background:var(--s2); border:1px solid var(--border2); color:var(--accent);
+}
 
-/* ── Chart panel ── */
-.chart-panel { flex:1; display:flex; flex-direction:column; min-width:0; overflow:hidden; }
-.chart-hdr   { padding:10px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:var(--surface); flex-shrink:0; position:relative; }
-.ct-ticker   { font-size:18px; font-weight:700; }
-.ct-price    { font-size:15px; color:var(--green); }
+/* ════════════════════════════════════════════════
+   APP LAYOUT
+════════════════════════════════════════════════ */
+#app {
+  display:flex;
+  height:calc(100vh - var(--nav-h));
+  margin-top:var(--nav-h);
+  overflow:hidden;
+}
 
-/* Multi-order badge + tooltip in chart header */
-.mo-badge     { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; cursor:pointer; position:relative; }
-.mo-dots      { display:flex; gap:3px; }
-.mo-dot       { width:7px; height:7px; border-radius:50%; }
-.mo-tooltip   {
-  display:none; position:absolute; top:calc(100% + 8px); left:0; z-index:300;
-  background:#1a1f28; border:1px solid var(--border); border-radius:8px;
-  padding:10px 14px; min-width:220px; box-shadow:0 8px 24px rgba(0,0,0,.5);
+/* ════════════════════════════════════════════════
+   SIDEBAR — collapsible
+════════════════════════════════════════════════ */
+#sidebar {
+  width: var(--sb-w);
+  min-width: var(--sb-w);
+  height: 100%;
+  display: flex; flex-direction: column;
+  background: var(--surf);
+  border-right: 1px solid var(--border);
+  flex-shrink: 0;
+  transition: width .28s ease, min-width .28s ease;
+  overflow: hidden;
+  position: relative;
+  z-index: 10;
+}
+#sidebar.col {
+  width: 44px;
+  min-width: 44px;
+}
+/* Hide scroll content when collapsed */
+#sidebar.col #sb-scroll { opacity:0; pointer-events:none; }
+/* Flip arrow icon */
+#sidebar.col .sb-arr { transform: rotate(180deg); }
+
+.sb-header {
+  height:48px; flex-shrink:0;
+  display:flex; align-items:center; justify-content:space-between;
+  padding:0 12px; border-bottom:1px solid var(--border);
+}
+.sb-title {
+  font-size:10px; font-weight:600; font-family:var(--mono);
+  color:var(--muted2); text-transform:uppercase; letter-spacing:1px;
   white-space:nowrap;
 }
-.mo-badge:hover .mo-tooltip { display:block; }
-.mo-tt-row    { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:3px 0; font-size:11px; }
-.mo-tt-lbl    { color:var(--muted); }
-.mo-tt-val    { font-weight:600; }
+.sb-tog {
+  width:26px; height:26px; border-radius:var(--r);
+  background:transparent; border:1px solid var(--border);
+  color:var(--muted); cursor:pointer; flex-shrink:0;
+  display:flex; align-items:center; justify-content:center;
+  font-size:11px; transition:all .12s;
+}
+.sb-tog:hover { background:var(--s2); color:var(--text); border-color:var(--border2); }
+.sb-arr { display:inline-block; transition:transform .28s ease; }
 
-.legend      { display:flex; gap:14px; padding:5px 18px; border-bottom:1px solid var(--border); font-size:11px; color:var(--muted); background:var(--s2); flex-shrink:0; flex-wrap:wrap; }
-.li          { display:flex; align-items:center; gap:4px; }
-.ld          { width:7px; height:7px; border-radius:50%; }
-#chart-wrap  { flex:1; position:relative; min-height:0; }
-.metrics     { display:flex; border-top:1px solid var(--border); background:var(--surface); flex-shrink:0; overflow-x:auto; }
-.met         { flex:1; min-width:80px; padding:8px 14px; border-right:1px solid var(--border); }
-.met:last-child { border-right:none; }
-.ml { font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
-.mv { font-size:14px; font-weight:600; margin-top:2px; }
+/* collapsed: show only the toggle in center */
+#sidebar.col .sb-title { display:none; }
+
+#sb-scroll {
+  flex:1; overflow-y:auto; overflow-x:hidden;
+  padding:12px 12px 20px;
+  display:flex; flex-direction:column; gap:14px;
+  transition:opacity .18s;
+}
+#sb-scroll::-webkit-scrollbar { width:3px; }
+#sb-scroll::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+
+/* Section label */
+.slbl {
+  font-size:9px; font-weight:700; font-family:var(--mono);
+  color:var(--muted2); text-transform:uppercase; letter-spacing:1px;
+  margin-bottom:6px; display:flex; align-items:center; gap:6px;
+}
+.slbl::after { content:''; flex:1; height:1px; background:var(--border); }
+
+/* Form controls — same as shared.css .ctrl */
+.ctrl {
+  width:100%; background:var(--s2); color:var(--text);
+  border:1px solid var(--border); border-radius:var(--r);
+  padding:6px 10px; font-size:12px; font-family:var(--sans);
+  outline:none; transition:border-color .12s; appearance:none;
+}
+.ctrl:focus { border-color:var(--accent); }
+select.ctrl {
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%235a6470'/%3E%3C/svg%3E");
+  background-repeat:no-repeat; background-position:right 10px center;
+  padding-right:28px; cursor:pointer;
+}
+.ctrl-lbl {
+  font-size:10px; color:var(--muted); font-family:var(--mono);
+  margin-bottom:3px; display:block;
+}
+
+/* Segment toggle (buy/sell) */
+.seg { display:flex; background:var(--s2); border:1px solid var(--border); border-radius:var(--r2); padding:2px; gap:2px; }
+.seg-btn {
+  flex:1; padding:5px; border-radius:5px; font-size:12px; font-weight:500;
+  border:none; background:transparent; color:var(--muted);
+  cursor:pointer; transition:all .15s; font-family:var(--sans);
+}
+.seg-btn.buy  { background:#14532d; color:#86efac; }
+.seg-btn.sell { background:#7f1d1d; color:#fca5a5; }
+
+/* TF chips */
+.tfc-row { display:flex; gap:4px; flex-wrap:wrap; }
+.tfc {
+  padding:3px 10px; border-radius:99px; font-size:11px;
+  font-family:var(--mono); font-weight:500;
+  border:1px solid var(--border); background:transparent;
+  color:var(--muted); cursor:pointer; transition:all .12s;
+}
+.tfc:hover { border-color:var(--border2); color:var(--text); }
+.tfc.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+
+/* Stepper row */
+.srow { display:flex; gap:6px; }
+.sg { flex:1; display:flex; flex-direction:column; gap:3px; }
+.stpw {
+  display:flex; background:var(--s2); border:1px solid var(--border);
+  border-radius:var(--r); overflow:hidden; align-items:center;
+}
+.stpw input {
+  flex:1; background:transparent; border:none; outline:none;
+  color:var(--text); font-family:var(--mono); font-size:12px;
+  padding:6px 4px; text-align:center;
+}
+.stpb {
+  width:26px; background:transparent; border:none; color:var(--muted);
+  cursor:pointer; font-size:14px; padding:0; height:30px;
+  display:flex; align-items:center; justify-content:center; transition:all .12s;
+}
+.stpb:hover { background:var(--s3); color:var(--text); }
+
+/* Trend dropdown */
+.tdw { position:relative; }
+.trig {
+  width:100%; background:var(--s2); color:var(--text);
+  border:1px solid var(--border); border-radius:var(--r);
+  padding:6px 10px; font-size:12px; font-family:var(--sans);
+  text-align:left; cursor:pointer;
+  display:flex; justify-content:space-between; align-items:center;
+  transition:border-color .12s;
+}
+.trig:hover { border-color:var(--border2); }
+.tarr { font-size:8px; color:var(--muted); transition:transform .18s; }
+.trig.op .tarr { transform:rotate(180deg); }
+.tdd {
+  position:absolute; top:calc(100% + 4px); left:0; right:0; z-index:300;
+  background:var(--s2); border:1px solid var(--border2); border-radius:var(--r2);
+  max-height:240px; overflow-y:auto; display:none;
+  box-shadow:0 12px 40px rgba(0,0,0,.5);
+}
+.tdd.op { display:block; }
+.tdg { padding:6px 12px 2px; font-size:9px; font-weight:600; font-family:var(--mono); color:var(--muted2); text-transform:uppercase; letter-spacing:1px; }
+.tdo { display:flex; align-items:center; gap:8px; padding:6px 12px; cursor:pointer; font-size:12px; transition:background .1s; }
+.tdo:hover { background:var(--s3); }
+.tdo input[type=checkbox] { accent-color:var(--accent); width:13px; height:13px; flex-shrink:0; }
+
+/* MO card */
+.moc { background:var(--s2); border:1px solid var(--border); border-radius:var(--r2); overflow:hidden; }
+.moh { padding:8px 12px; display:flex; align-items:center; gap:8px; border-bottom:1px solid var(--border); }
+.motog { position:relative; width:32px; height:17px; flex-shrink:0; }
+.motog input { opacity:0; width:0; height:0; }
+.mos { position:absolute; inset:0; background:var(--s3); border-radius:99px; cursor:pointer; transition:background .18s; }
+.mos::after { content:''; position:absolute; width:11px; height:11px; border-radius:50%; background:var(--muted); top:3px; left:3px; transition:all .18s; }
+.motog input:checked + .mos { background:var(--accentd); }
+.motog input:checked + .mos::after { background:#fff; transform:translateX(15px); }
+.mobl { font-size:12px; font-weight:500; color:var(--text); flex:1; }
+.mob { padding:10px 12px; display:flex; flex-direction:column; gap:8px; }
+.mob.hid { display:none; }
+.molv { display:grid; grid-template-columns:40px 1fr 1fr; gap:6px; align-items:end; }
+.molk { font-size:9px; font-weight:700; font-family:var(--mono); padding:3px 0; text-align:center; letter-spacing:.5px; }
+.moH { color:#ddd6fe; border-bottom:2px solid #7c3aed; }
+.moM { color:#93c5fd; border-bottom:2px solid #1d4ed8; }
+.moL { color:#86efac; border-bottom:2px solid #16a34a; }
+
+/* Scan button — same style as btn-primary in shared.css */
+.scan-btn {
+  width:100%; padding:9px; border-radius:var(--r);
+  background:var(--accent); color:#fff; border:none;
+  font-size:13px; font-weight:600; font-family:var(--sans);
+  cursor:pointer; transition:all .15s; letter-spacing:.2px;
+}
+.scan-btn:hover:not(:disabled) { background:var(--accentd); }
+.scan-btn:disabled { opacity:.45; cursor:not-allowed; }
+
+/* ════════════════════════════════════════════════
+   RESULTS PANEL
+════════════════════════════════════════════════ */
+#rp {
+  width:320px; min-width:260px;
+  height:100%; display:flex; flex-direction:column;
+  background:var(--surf); border-right:1px solid var(--border);
+  flex-shrink:0;
+}
+.rph {
+  height:44px; flex-shrink:0;
+  display:flex; align-items:center; padding:0 14px; gap:8px;
+  border-bottom:1px solid var(--border);
+}
+.rptit { font-size:10px; font-weight:600; font-family:var(--mono); color:var(--muted2); text-transform:uppercase; letter-spacing:1px; }
+.rpcnt {
+  font-size:10px; font-family:var(--mono);
+  padding:2px 8px; border-radius:99px;
+  background:var(--s2); border:1px solid var(--border); color:var(--muted);
+}
+.rpsrt { margin-left:auto; display:flex; gap:3px; }
+.srtb {
+  width:26px; height:26px; border-radius:var(--r);
+  background:transparent; border:1px solid var(--border);
+  color:var(--muted); cursor:pointer; font-size:11px;
+  display:flex; align-items:center; justify-content:center; transition:all .12s;
+}
+.srtb:hover,.srtb.on { background:var(--s2); border-color:var(--border2); color:var(--text); }
+
+.rpcols {
+  display:grid; grid-template-columns:1fr 70px 64px;
+  padding:5px 14px; border-bottom:1px solid var(--border);
+  flex-shrink:0; background:var(--bg);
+}
+.rpcol { font-size:9px; font-weight:600; font-family:var(--mono); color:var(--muted2); text-transform:uppercase; letter-spacing:.8px; }
+.rpcol:not(:first-child) { text-align:right; }
+
+#rlist { flex:1; overflow-y:auto; overflow-x:hidden; }
+#rlist::-webkit-scrollbar { width:3px; }
+#rlist::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+
+/* Stock row — NO css animation here (that was the flash bug) */
+.sr {
+  display:grid; grid-template-columns:1fr 70px 64px;
+  padding:9px 14px; border-bottom:1px solid var(--border);
+  cursor:pointer; transition:background .1s; position:relative; align-items:center;
+}
+.sr:hover { background:var(--s2); }
+.sr.on { background:var(--s3); border-left:2px solid var(--accent); padding-left:12px; }
+.srn { font-size:13px; font-weight:600; font-family:var(--mono); color:var(--text); }
+.srm { font-size:10px; color:var(--muted); margin-top:2px; display:flex; align-items:center; gap:5px; }
+.srp { font-size:12px; font-weight:600; font-family:var(--mono); text-align:right; }
+.srz { text-align:right; display:flex; flex-direction:column; align-items:flex-end; gap:2px; }
+.sra { font-size:10px; font-family:var(--mono); color:var(--green); }
+.srt { font-size:8px; font-weight:700; font-family:var(--mono); padding:1px 5px; border-radius:3px; letter-spacing:.5px; }
+
+/* ⓘ button */
+.ibtn {
+  position:absolute; right:10px; top:50%; transform:translateY(-50%);
+  width:20px; height:20px; border-radius:50%;
+  background:transparent; border:1px solid var(--border);
+  color:var(--muted); font-size:10px; font-family:var(--mono); font-weight:700;
+  cursor:pointer; display:flex; align-items:center; justify-content:center;
+  transition:all .12s; opacity:0; pointer-events:none;
+}
+.sr:hover .ibtn, .sr.on .ibtn { opacity:1; pointer-events:all; }
+.ibtn:hover { background:var(--s3); border-color:var(--border2); color:var(--accent); }
+
+/* Trend badges — identical to shared.css */
+.tbadge { font-size:9px; font-weight:600; font-family:var(--mono); padding:2px 6px; border-radius:4px; white-space:nowrap; letter-spacing:.2px; display:inline-block; }
+.t-up { background:#14532d; color:#86efac; }
+.t-dn { background:#7f1d1d; color:#fca5a5; }
+.t-co { background:#292524; color:#a8a29e; }
+
+/* Empty / shimmer */
+.empty-st { display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; gap:10px; color:var(--muted); }
+.e-ico { font-size:28px; opacity:.5; }
+.e-txt { font-size:12px; }
+.e-sub { font-size:11px; color:var(--muted2); }
+.shrow { padding:9px 14px; border-bottom:1px solid var(--border); display:flex; flex-direction:column; gap:6px; }
+.sh { border-radius:4px; background:linear-gradient(90deg,var(--s2) 25%,var(--s3) 50%,var(--s2) 75%); background-size:200% 100%; animation:sh 1.4s infinite; }
+@keyframes sh { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
+
+/* ════════════════════════════════════════════════
+   CHART PANEL
+════════════════════════════════════════════════ */
+#cp { flex:1; min-width:0; height:100%; display:flex; flex-direction:column; overflow:hidden; }
+.cph {
+  height:48px; flex-shrink:0;
+  display:flex; align-items:center; padding:0 18px; gap:10px;
+  background:var(--surf); border-bottom:1px solid var(--border);
+}
+.cptk { font-size:17px; font-weight:700; font-family:var(--mono); letter-spacing:.3px; }
+.cppr { font-size:14px; font-weight:600; font-family:var(--mono); color:var(--green); }
+.cpleg {
+  display:flex; gap:14px; padding:5px 18px; flex-shrink:0;
+  border-bottom:1px solid var(--border); background:var(--s2); overflow-x:auto;
+}
+.cpleg::-webkit-scrollbar { height:2px; }
+.li { display:flex; align-items:center; gap:4px; font-size:10px; color:var(--muted); white-space:nowrap; }
+.ld { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+.lr { width:12px; height:7px; border-radius:2px; flex-shrink:0; }
+
+#cw { flex:1; position:relative; min-height:0; }
+#cload {
+  position:absolute; inset:0; z-index:50;
+  background:rgba(13,15,18,.75);
+  display:none; align-items:center; justify-content:center;
+}
+#cload.show { display:flex; }
+.cspn { width:24px; height:24px; border-radius:50%; border:2px solid var(--border); border-top-color:var(--accent); animation:spin .7s linear infinite; }
+@keyframes spin { to{transform:rotate(360deg)} }
+
+.cpmet { display:flex; flex-shrink:0; border-top:1px solid var(--border); background:var(--surf); overflow-x:auto; }
+.cpmet::-webkit-scrollbar { height:2px; }
+.met { flex:1; min-width:86px; padding:7px 14px; border-right:1px solid var(--border); }
+.met:last-child { border:none; }
+.ml { font-size:8px; font-family:var(--mono); color:var(--muted); text-transform:uppercase; letter-spacing:.8px; }
+.mv { font-size:12px; font-weight:600; font-family:var(--mono); margin-top:2px; }
+
+.tfg { display:flex; gap:2px; margin-left:auto; flex-shrink:0; }
+.tfb {
+  padding:4px 10px; border-radius:var(--r); border:1px solid var(--border);
+  background:transparent; color:var(--muted); font-size:11px; font-family:var(--mono);
+  cursor:pointer; transition:all .12s;
+}
+.tfb:hover { color:var(--text); border-color:var(--border2); }
+.tfb.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+
+/* ════════════════════════════════════════════════
+   DRAWER
+════════════════════════════════════════════════ */
+#dov { position:fixed; inset:0; z-index:600; background:rgba(0,0,0,.45); display:none; }
+#dov.show { display:block; }
+#dw {
+  position:fixed; right:0; top:var(--nav-h); bottom:0; z-index:700;
+  width:var(--dw-w);
+  background:var(--surf); border-left:1px solid var(--border2);
+  box-shadow:-16px 0 48px rgba(0,0,0,.5);
+  display:flex; flex-direction:column;
+  transform:translateX(100%);
+  transition:transform .28s cubic-bezier(.4,0,.2,1);
+}
+#dw.open { transform:translateX(0); }
+.dwh {
+  padding:14px 16px; border-bottom:1px solid var(--border);
+  display:flex; align-items:flex-start; gap:10px; flex-shrink:0;
+}
+.dwtk { font-size:16px; font-weight:700; font-family:var(--mono); }
+.dwsb { font-size:10px; color:var(--muted); margin-top:3px; }
+.dwpr { font-size:13px; font-family:var(--mono); color:var(--green); margin-left:auto; padding-top:2px; }
+.dwcl {
+  width:26px; height:26px; border-radius:var(--r); flex-shrink:0;
+  background:var(--s2); border:1px solid var(--border);
+  color:var(--muted); cursor:pointer; font-size:14px;
+  display:flex; align-items:center; justify-content:center; transition:all .12s;
+}
+.dwcl:hover { background:var(--s3); color:var(--text); }
+
+#dws { flex:1; overflow-y:auto; padding:14px 16px; display:flex; flex-direction:column; gap:16px; }
+#dws::-webkit-scrollbar { width:3px; }
+#dws::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+
+.dwst {
+  font-size:9px; font-weight:700; font-family:var(--mono);
+  color:var(--muted2); text-transform:uppercase; letter-spacing:1px;
+  margin-bottom:8px; display:flex; align-items:center; gap:6px;
+}
+.dwst::after { content:''; flex:1; height:1px; background:var(--border); }
+
+/* Info grid tiles */
+.ig2 { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+.ig3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; }
+.it {
+  background:var(--s2); border:1px solid var(--border);
+  border-radius:var(--r2); padding:9px 10px;
+}
+.itl { font-size:8px; font-family:var(--mono); color:var(--muted2); text-transform:uppercase; letter-spacing:.8px; }
+.itv { font-size:13px; font-weight:600; font-family:var(--mono); margin-top:3px; }
+.its { font-size:9px; color:var(--muted2); margin-top:2px; }
+
+/* MO bar rows */
+.mobr { display:grid; grid-template-columns:50px 1fr 34px; align-items:center; gap:8px; margin-bottom:7px; }
+.mobi { display:flex; flex-direction:column; gap:3px; }
+.mobt { font-size:10px; color:var(--text); }
+.mobtr { height:4px; background:var(--border); border-radius:2px; overflow:hidden; }
+.mobtf { height:100%; border-radius:2px; }
+.mobp { font-size:10px; font-family:var(--mono); color:var(--muted); text-align:right; }
+
+/* Velocity bar */
+.vb { height:34px; background:var(--s2); border:1px solid var(--border); border-radius:var(--r2); position:relative; overflow:hidden; display:flex; align-items:center; }
+.vc { position:absolute; left:50%; top:0; bottom:0; width:1px; background:var(--border2); z-index:1; }
+.vf { position:absolute; top:5px; bottom:5px; border-radius:3px; }
+.vlbl { position:absolute; width:100%; text-align:center; z-index:2; font-size:11px; font-family:var(--mono); font-weight:600; color:var(--text); }
+
+.pos { color:var(--green); }
+.neg { color:var(--red); }
 </style>
 </head>
 <body>
-<script>QS.nav('scanner')</script>
 
-<div class="main">
-  <!-- ── Sidebar ── -->
-  <div class="sidebar">
-    <div class="controls">
+<!-- NAV -->
+<nav id="nav">
+  <a class="nav-logo" href="/">
+    <div class="nav-logo-icon">⚡</div>
+    QuantScanner
+  </a>
+  <a class="nav-link active" href="/">Scanner</a>
+  <a class="nav-link" href="/trend">Trend Viewer</a>
+  <a class="nav-link" href="/data">Data Fetch</a>
+  <div class="nav-spacer"></div>
+  <div class="nav-dot-wrap">
+    <span class="nav-live"></span>
+    <span id="nst">ready</span>
+  </div>
+  <div class="nav-badge" id="nbadge">0 setups</div>
+</nav>
 
-      <!-- Zone Strategy -->
-      <div class="ctrl-row">
-        <div style="display:flex;flex-direction:column;flex:1">
-          <div class="ctrl-label">Zone Strategy</div>
-          <select id="strategy" class="ctrl" style="width:100%">
-            <option value="atr"           selected>ATR Body (RBR + DBR)</option>
-            <option value="consolidation">Consolidation (Volume)</option>
-            <option value="both"         >Both</option>
-          </select>
-        </div>
-      </div>
+<!-- DRAWER OVERLAY -->
+<div id="dov" onclick="closeDW()"></div>
 
-      <!-- Direction + Interval -->
-      <div class="ctrl-row">
-        <select id="dir" class="ctrl">
-          <option value="buy">Buy Zones</option>
-          <option value="sell">Sell Zones</option>
-        </select>
-        <select id="itv" class="ctrl">
-          <option value="1d">Daily</option>
-          <option value="1wk">Weekly</option>
-          <option value="1h">1H</option>
-        </select>
-      </div>
+<!-- APP -->
+<div id="app">
 
-      <!-- Pivot Order + Zone Lookback + Legout -->
-      <div class="ctrl-row">
-        <div style="display:flex;flex-direction:column;flex:1">
-          <div class="ctrl-label">Pivot Order</div>
-          <input id="order" type="number" class="ctrl" value="5" min="1" max="30" style="width:100%">
-        </div>
-        <div style="display:flex;flex-direction:column;flex:1">
-          <div class="ctrl-label">Zone Lookback</div>
-          <input id="zlb" type="number" class="ctrl" value="20" min="5" max="500" style="width:100%">
-        </div>
-        <div style="display:flex;flex-direction:column;flex:1">
-          <div class="ctrl-label">Legout × ATR</div>
-          <input id="legout" type="number" class="ctrl" value="1.35" step="0.05" min="0.5" max="5" style="width:100%">
-        </div>
-      </div>
+  <!-- ═══ SIDEBAR ═══ -->
+  <aside id="sidebar">
+    <div class="sb-header">
+      <span class="sb-title">Filters</span>
+      <!-- Toggle button always visible; arrow flips via CSS -->
+      <button class="sb-tog" onclick="toggleSB()" title="Toggle sidebar">
+        <span class="sb-arr">◀</span>
+      </button>
+    </div>
+    <div id="sb-scroll">
 
-      <!-- Trend filter (existing multi-select) -->
       <div>
-        <div class="ctrl-label">Trend Filter</div>
-        <div class="trend-select-wrap" id="trend-wrap">
-          <button class="trend-trigger" onclick="toggleTrendDD(event)">
-            <span id="trend-label">All trends</span>
-            <span class="arrow">▼</span>
+        <div class="slbl">Direction</div>
+        <div class="seg" id="dir-seg">
+          <button class="seg-btn buy" data-v="buy" onclick="setDir(this)">▲ Buy Zones</button>
+          <button class="seg-btn" data-v="sell" onclick="setDir(this)">▼ Sell Zones</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="slbl">Timeframe</div>
+        <div class="tfc-row" id="tfc-row">
+          <button class="tfc on" data-v="1d"  onclick="setTFC(this)">1D</button>
+          <button class="tfc"    data-v="1wk" onclick="setTFC(this)">1W</button>
+          <button class="tfc"    data-v="1h"  onclick="setTFC(this)">1H</button>
+          <button class="tfc"    data-v="4h"  onclick="setTFC(this)">4H</button>
+          <button class="tfc"    data-v="15m" onclick="setTFC(this)">15m</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="slbl">Zone Strategy</div>
+        <select id="strat" class="ctrl">
+          <option value="atr">ATR Body (RBR + DBR)</option>
+          <option value="consolidation">Consolidation (Volume)</option>
+          <option value="both">Both Methods</option>
+        </select>
+      </div>
+
+      <div>
+        <div class="slbl">Parameters</div>
+        <div class="srow">
+          <div class="sg">
+            <span class="ctrl-lbl">Pivot Order</span>
+            <div class="stpw">
+              <button class="stpb" onclick="stp('order',-1)">−</button>
+              <input type="number" id="order" value="5" min="1" max="30">
+              <button class="stpb" onclick="stp('order',1)">+</button>
+            </div>
+          </div>
+          <div class="sg">
+            <span class="ctrl-lbl">Lookback</span>
+            <div class="stpw">
+              <button class="stpb" onclick="stp('zlb',-5)">−</button>
+              <input type="number" id="zlb" value="20" min="5" max="500">
+              <button class="stpb" onclick="stp('zlb',5)">+</button>
+            </div>
+          </div>
+        </div>
+        <div class="sg" style="margin-top:6px">
+          <span class="ctrl-lbl">Legout × ATR</span>
+          <div class="stpw">
+            <button class="stpb" onclick="stp('legout',-0.05)">−</button>
+            <input type="number" id="legout" value="1.35" step="0.05" min="0.5" max="5">
+            <button class="stpb" onclick="stp('legout',0.05)">+</button>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="slbl">Trend Filter</div>
+        <div class="tdw">
+          <button class="trig" id="ttrig" onclick="toggleTDD(event)">
+            <span id="tlbl">All trends</span>
+            <span class="tarr">▼</span>
           </button>
-          <div class="trend-dropdown" id="trend-dd">
-            <div class="trend-opt" style="border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:4px">
-              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--accent);font-weight:600">
-                <input type="checkbox" id="all-trends" checked onchange="toggleAllTrends(this)"> All trends
+          <div class="tdd" id="tdd">
+            <div style="padding:7px 12px;border-bottom:1px solid var(--border)">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--accent);font-family:var(--mono)">
+                <input type="checkbox" id="all-t" checked onchange="allT(this)"> All trends
               </label>
             </div>
-            <div style="padding:3px 12px;font-size:9px;color:var(--green);text-transform:uppercase;letter-spacing:.5px">Bullish</div>
-            <div class="trend-opt"><input type="checkbox" class="tc" value="strong_uptrend"      checked><span>Strong uptrend</span></div>
-            <div class="trend-opt"><input type="checkbox" class="tc" value="continuous_uptrend"  checked><span>Continuous uptrend</span></div>
-            <div class="trend-opt"><input type="checkbox" class="tc" value="up"                  checked><span>Up</span></div>
-            <div class="trend-opt"><input type="checkbox" class="tc" value="bullish_mitigation"  checked><span>Bullish mitigation</span></div>
-            <div class="trend-opt"><input type="checkbox" class="tc" value="semi-up"             checked><span>Semi-up</span></div>
-            <div class="trend-opt"><input type="checkbox" class="tc" value="weakening_uptrend"   checked><span>Weakening uptrend</span></div>
-            <div style="padding:3px 12px;font-size:9px;color:var(--amber);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Neutral</div>
-            <div class="trend-opt"><input type="checkbox" class="tc" value="consolidate"         checked><span>Consolidate</span></div>
-            <div class="trend-opt"><input type="checkbox" class="tc" value="flat_consolidation"  checked><span>Flat consolidation</span></div>
-            <div class="trend-opt"><input type="checkbox" class="tc" value="deep_consolidation"  checked><span>Deep consolidation</span></div>
-            <div class="trend-opt"><input type="checkbox" class="tc" value="sw"                  checked><span>SW (sideways)</span></div>
-            <div class="trend-opt"><input type="checkbox" class="tc" value="expanding_structure" checked><span>Expanding structure</span></div>
-            <div style="padding:3px 12px;font-size:9px;color:var(--red);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Bearish</div>
-            <div class="trend-opt"><input type="checkbox" class="tc" value="weakening_downtrend" checked><span>Weakening downtrend</span></div>
-            <div class="trend-opt"><input type="checkbox" class="tc" value="down"                checked><span>Down</span></div>
-            <div class="trend-opt"><input type="checkbox" class="tc" value="continuous_downtrend"checked><span>Continuous downtrend</span></div>
-            <div class="trend-opt"><input type="checkbox" class="tc" value="strong_downtrend"    checked><span>Strong downtrend</span></div>
-            <div class="trend-opt"><input type="checkbox" class="tc" value="transitioning"       checked><span>Transitioning</span></div>
+            <div class="tdg">Bullish</div>
+            <div class="tdo"><input type="checkbox" class="tc" value="strong_uptrend" checked><span>Strong uptrend</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="continuous_uptrend" checked><span>Continuous uptrend</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="up" checked><span>Up</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="semi-up" checked><span>Semi-up</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="weakening_uptrend" checked><span>Weakening uptrend</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="bullish_mitigation" checked><span>Bullish mitigation</span></div>
+            <div class="tdg" style="margin-top:4px">Neutral</div>
+            <div class="tdo"><input type="checkbox" class="tc" value="consolidate" checked><span>Consolidate</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="flat_consolidation" checked><span>Flat consolidation</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="deep_consolidation" checked><span>Deep consolidation</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="sw" checked><span>SW sideways</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="expanding_structure" checked><span>Expanding structure</span></div>
+            <div class="tdg" style="margin-top:4px">Bearish</div>
+            <div class="tdo"><input type="checkbox" class="tc" value="weakening_downtrend" checked><span>Weakening downtrend</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="down" checked><span>Down</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="continuous_downtrend" checked><span>Continuous downtrend</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="strong_downtrend" checked><span>Strong downtrend</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="transitioning" checked><span>Transitioning</span></div>
           </div>
         </div>
       </div>
 
-      <!-- ── Multi-Order Section ── -->
-      <div class="sec-divider">Multi-Order Trend Analysis</div>
-      <div class="mo-section" id="mo-section">
-        <!-- Enable toggle -->
-        <div style="display:flex;align-items:center;gap:8px">
-          <input type="checkbox" id="mo-enable" style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer"
-                 onchange="toggleMO(this.checked)">
-          <label for="mo-enable" style="font-size:12px;cursor:pointer;color:var(--text)">
-            Enable Multi-Order Analysis
-          </label>
+      <div>
+        <div class="slbl">Multi-Order</div>
+        <div class="moc">
+          <div class="moh">
+            <label class="motog" onclick="event.stopPropagation()">
+              <input type="checkbox" id="moen" onchange="toggleMO(this.checked)">
+              <span class="mos"></span>
+            </label>
+            <span class="mobl">Multi-Order Analysis</span>
+          </div>
+          <div class="mob hid" id="mob">
+            <div class="molv">
+              <span class="molk moH">HIGH</span>
+              <div class="sg"><span class="ctrl-lbl">Order</span><input type="number" id="moh" class="ctrl" value="20" style="padding:5px 8px;font-size:11px"></div>
+              <div class="sg"><span class="ctrl-lbl">Trend</span>
+                <select id="moht" class="ctrl" style="padding:5px 8px;font-size:11px">
+                  <option value="any">Any</option><option value="any_uptrend">Any uptrend</option>
+                  <option value="strong_uptrend">Strong</option><option value="up">Up</option>
+                  <option value="any_downtrend">Any downtrend</option><option value="any_neutral">Neutral</option>
+                </select>
+              </div>
+            </div>
+            <div class="molv">
+              <span class="molk moM">MID</span>
+              <div class="sg"><span class="ctrl-lbl">Order</span><input type="number" id="mom" class="ctrl" value="10" style="padding:5px 8px;font-size:11px"></div>
+              <div class="sg"><span class="ctrl-lbl">Trend</span>
+                <select id="momt" class="ctrl" style="padding:5px 8px;font-size:11px">
+                  <option value="any">Any</option><option value="any_uptrend">Any uptrend</option>
+                  <option value="strong_uptrend">Strong</option><option value="up">Up</option>
+                  <option value="any_downtrend">Any downtrend</option><option value="any_neutral">Neutral</option>
+                </select>
+              </div>
+            </div>
+            <div class="molv">
+              <span class="molk moL">LOW</span>
+              <div class="sg"><span class="ctrl-lbl">Order</span><input type="number" id="mol" class="ctrl" value="5" style="padding:5px 8px;font-size:11px"></div>
+              <div class="sg"><span class="ctrl-lbl">Trend</span>
+                <select id="molt" class="ctrl" style="padding:5px 8px;font-size:11px">
+                  <option value="any">Any</option><option value="any_uptrend">Any uptrend</option>
+                  <option value="strong_uptrend">Strong</option><option value="up">Up</option>
+                  <option value="any_downtrend">Any downtrend</option><option value="any_neutral">Neutral</option>
+                </select>
+              </div>
+            </div>
+          </div>
         </div>
+      </div>
 
-        <!-- Order inputs + trend selects -->
-        <div id="mo-inputs" class="mo-disabled">
+      <button class="scan-btn" id="scanbtn" onclick="runScan()">▶  Run Scan</button>
 
-          <!-- Higher Order -->
-          <div style="display:flex;align-items:center;gap:6px;margin-bottom:7px">
-            <span class="mo-label mo-high">High</span>
-            <div style="display:flex;flex-direction:column;flex:0 0 60px">
-              <div class="ctrl-label">Order</div>
-              <input id="mo-order-high" type="number" class="ctrl" value="20" min="1" max="100" style="width:100%;padding:4px 6px;font-size:12px">
-            </div>
-            <div style="display:flex;flex-direction:column;flex:1">
-              <div class="ctrl-label">Trend Must Be</div>
-              <select id="mo-trend-high" class="trend-sel">
-                <option value="any" selected>Any</option>
-                <optgroup label="── Uptrend ──">
-                  <option value="any_uptrend">Any uptrend</option>
-                  <option value="strong_uptrend">Strong uptrend</option>
-                  <option value="continuous_uptrend">Continuous uptrend</option>
-                  <option value="up">Up</option>
-                  <option value="semi-up">Semi-up</option>
-                  <option value="weakening_uptrend">Weakening uptrend</option>
-                </optgroup>
-                <optgroup label="── Downtrend ──">
-                  <option value="any_downtrend">Any downtrend</option>
-                  <option value="strong_downtrend">Strong downtrend</option>
-                  <option value="continuous_downtrend">Continuous downtrend</option>
-                  <option value="down">Down</option>
-                  <option value="weakening_downtrend">Weakening downtrend</option>
-                </optgroup>
-                <optgroup label="── Neutral ──">
-                  <option value="any_neutral">Any neutral</option>
-                  <option value="consolidate">Consolidate</option>
-                  <option value="flat_consolidation">Flat consolidation</option>
-                  <option value="transitioning">Transitioning</option>
-                </optgroup>
-              </select>
-            </div>
-          </div>
+    </div><!-- sb-scroll -->
+  </aside>
 
-          <!-- Mid Order -->
-          <div style="display:flex;align-items:center;gap:6px;margin-bottom:7px">
-            <span class="mo-label mo-mid">Mid</span>
-            <div style="display:flex;flex-direction:column;flex:0 0 60px">
-              <div class="ctrl-label">Order</div>
-              <input id="mo-order-mid" type="number" class="ctrl" value="10" min="1" max="60" style="width:100%;padding:4px 6px;font-size:12px">
-            </div>
-            <div style="display:flex;flex-direction:column;flex:1">
-              <div class="ctrl-label">Trend Must Be</div>
-              <select id="mo-trend-mid" class="trend-sel">
-                <option value="any" selected>Any</option>
-                <optgroup label="── Uptrend ──">
-                  <option value="any_uptrend">Any uptrend</option>
-                  <option value="strong_uptrend">Strong uptrend</option>
-                  <option value="continuous_uptrend">Continuous uptrend</option>
-                  <option value="up">Up</option>
-                  <option value="semi-up">Semi-up</option>
-                  <option value="weakening_uptrend">Weakening uptrend</option>
-                </optgroup>
-                <optgroup label="── Downtrend ──">
-                  <option value="any_downtrend">Any downtrend</option>
-                  <option value="strong_downtrend">Strong downtrend</option>
-                  <option value="continuous_downtrend">Continuous downtrend</option>
-                  <option value="down">Down</option>
-                  <option value="weakening_downtrend">Weakening downtrend</option>
-                </optgroup>
-                <optgroup label="── Neutral ──">
-                  <option value="any_neutral">Any neutral</option>
-                  <option value="consolidate">Consolidate</option>
-                  <option value="flat_consolidation">Flat consolidation</option>
-                  <option value="transitioning">Transitioning</option>
-                </optgroup>
-              </select>
-            </div>
-          </div>
-
-          <!-- Low Order -->
-          <div style="display:flex;align-items:center;gap:6px">
-            <span class="mo-label mo-low">Low</span>
-            <div style="display:flex;flex-direction:column;flex:0 0 60px">
-              <div class="ctrl-label">Order</div>
-              <input id="mo-order-low" type="number" class="ctrl" value="5" min="1" max="30" style="width:100%;padding:4px 6px;font-size:12px">
-            </div>
-            <div style="display:flex;flex-direction:column;flex:1">
-              <div class="ctrl-label">Trend Must Be</div>
-              <select id="mo-trend-low" class="trend-sel">
-                <option value="any" selected>Any</option>
-                <optgroup label="── Uptrend ──">
-                  <option value="any_uptrend">Any uptrend</option>
-                  <option value="strong_uptrend">Strong uptrend</option>
-                  <option value="continuous_uptrend">Continuous uptrend</option>
-                  <option value="up">Up</option>
-                  <option value="semi-up">Semi-up</option>
-                  <option value="weakening_uptrend">Weakening uptrend</option>
-                </optgroup>
-                <optgroup label="── Downtrend ──">
-                  <option value="any_downtrend">Any downtrend</option>
-                  <option value="strong_downtrend">Strong downtrend</option>
-                  <option value="continuous_downtrend">Continuous downtrend</option>
-                  <option value="down">Down</option>
-                  <option value="weakening_downtrend">Weakening downtrend</option>
-                </optgroup>
-                <optgroup label="── Neutral ──">
-                  <option value="any_neutral">Any neutral</option>
-                  <option value="consolidate">Consolidate</option>
-                  <option value="flat_consolidation">Flat consolidation</option>
-                  <option value="transitioning">Transitioning</option>
-                </optgroup>
-              </select>
-            </div>
-          </div>
-
-        </div><!-- mo-inputs -->
-      </div><!-- mo-section -->
-
-      <!-- Scan button -->
-      <button id="sbtn" class="btn btn-primary" onclick="runScan()" style="width:100%">▶ Scan</button>
-
-    </div><!-- controls -->
-
-    <div class="list-hdr">
-      <span>Stock</span>
-      <span style="text-align:right">Price</span>
-      <span style="text-align:center">Trend</span>
-      <span style="text-align:right">Zone</span>
-    </div>
-
-    <div class="stock-list" id="list">
-      <div class="empty-state"><span class="empty-icon">📊</span><span>Press Scan to find zones</span></div>
-    </div>
-  </div><!-- sidebar -->
-
-  <!-- ── Chart Panel ── -->
-  <div class="chart-panel">
-    <div class="chart-hdr">
-      <span class="ct-ticker" id="ct-t">–</span>
-      <span class="ct-price"  id="ct-p">–</span>
-      <span id="ct-tr" class="tbadge badge-co">–</span>
-      <!-- Multi-order badge (shown when MO enabled) -->
-      <span id="mo-hdr-badge" style="display:none" class="mo-badge">
-        <div class="mo-dots" id="mo-hdr-dots"></div>
-        <span id="mo-hdr-combined"></span>
-        <div class="mo-tooltip" id="mo-hdr-tooltip"></div>
-      </span>
-      <div class="tf-group" style="margin-left:auto">
-        <button class="tf-btn active" onclick="setTf('1d',this)">1D</button>
-        <button class="tf-btn" onclick="setTf('1wk',this)">1W</button>
-        <button class="tf-btn" onclick="setTf('1h',this)">1H</button>
+  <!-- ═══ RESULTS PANEL ═══ -->
+  <div id="rp">
+    <div class="rph">
+      <span class="rptit">Scan Results</span>
+      <span class="rpcnt" id="rcnt">—</span>
+      <div class="rpsrt">
+        <button class="srtb on" id="s-age" onclick="sortBy('bars_ago')" title="Sort by recency">⏱</button>
+        <button class="srtb" id="s-atr" onclick="sortBy('atr_pct')" title="Sort by ATR">σ</button>
       </div>
     </div>
-
-    <div class="legend">
-      <span class="li"><span class="ld" style="background:#ef4444"></span>Top pivot</span>
-      <span class="li"><span class="ld" style="background:#22c55e"></span>Bottom pivot</span>
-      <span class="li"><span style="display:inline-block;width:14px;height:8px;background:rgba(34,197,94,.25);border:1px solid #22c55e;border-radius:2px"></span>RBR</span>
-      <span class="li"><span style="display:inline-block;width:14px;height:8px;background:rgba(45,212,191,.25);border:1px solid #2dd4bf;border-radius:2px"></span>DBR</span>
-      <span class="li"><span style="display:inline-block;width:14px;height:8px;background:rgba(167,139,250,.25);border:1px solid #a78bfa;border-radius:2px"></span>Consol.</span>
-      <span class="li"><span style="display:inline-block;width:14px;height:8px;background:rgba(136,136,136,.15);border:1px dashed #888;border-radius:2px"></span>Invalidated</span>
+    <div class="rpcols">
+      <span class="rpcol">Stock</span>
+      <span class="rpcol">Price</span>
+      <span class="rpcol">Zone</span>
     </div>
-
-    <div id="chart-wrap">
-      <div class="empty-state"><span class="empty-icon">📈</span><span>Select a stock to view chart</span></div>
-    </div>
-
-    <div class="metrics">
-      <div class="met"><div class="ml">ATR %</div><div class="mv" id="m1">–</div></div>
-      <div class="met"><div class="ml">Trend Str.</div><div class="mv" id="m2">–</div></div>
-      <div class="met"><div class="ml">Zones Found</div><div class="mv" id="m3">–</div></div>
-      <div class="met"><div class="ml">Zone Age</div><div class="mv" id="m4">–</div></div>
-      <div class="met"><div class="ml">Pivots</div><div class="mv" id="m5">–</div></div>
-      <div class="met"><div class="ml">Velocity</div><div class="mv" id="m6">–</div></div>
-      <div class="met"><div class="ml">Leg Ratio</div><div class="mv" id="m7">–</div></div>
-      <div class="met"><div class="ml">Amplitude</div><div class="mv" id="m8">–</div></div>
+    <div id="rlist">
+      <div class="empty-st">
+        <div class="e-ico">📊</div>
+        <div class="e-txt">Press Scan to find zones</div>
+        <div class="e-sub">Configure filters → Run Scan</div>
+      </div>
     </div>
   </div>
+
+  <!-- ═══ CHART PANEL ═══ -->
+  <div id="cp">
+    <div class="cph">
+      <span class="cptk" id="cptk">—</span>
+      <span class="cppr" id="cppr"></span>
+      <span id="cptr" class="tbadge t-co" style="display:none"></span>
+      <div class="tfg">
+        <button class="tfb on" onclick="setChTF('1d',this)">1D</button>
+        <button class="tfb" onclick="setChTF('1wk',this)">1W</button>
+        <button class="tfb" onclick="setChTF('1h',this)">1H</button>
+      </div>
+    </div>
+    <div class="cpleg">
+      <span class="li"><span class="ld" style="background:#ef4444"></span>Top pivot</span>
+      <span class="li"><span class="ld" style="background:#22c55e"></span>Bottom pivot</span>
+      <span class="li"><span class="lr" style="background:rgba(34,197,94,.2);border:1px solid #22c55e"></span>RBR</span>
+      <span class="li"><span class="lr" style="background:rgba(45,212,191,.2);border:1px solid #2dd4bf"></span>DBR</span>
+      <span class="li"><span class="lr" style="background:rgba(167,139,250,.2);border:1px solid #a78bfa"></span>Consol.</span>
+      <span class="li"><span class="lr" style="background:rgba(100,100,100,.15);border:1px dashed #666"></span>Invalidated</span>
+    </div>
+    <div id="cw">
+      <div class="empty-st"><div class="e-ico">📈</div><div class="e-txt">Select a stock to view chart</div></div>
+      <div id="cload"><div class="cspn"></div></div>
+    </div>
+    <div class="cpmet">
+      <div class="met"><div class="ml">ATR %</div><div class="mv" id="m1">—</div></div>
+      <div class="met"><div class="ml">Trend Str.</div><div class="mv" id="m2">—</div></div>
+      <div class="met"><div class="ml">Zones</div><div class="mv" id="m3">—</div></div>
+      <div class="met"><div class="ml">Zone Age</div><div class="mv" id="m4">—</div></div>
+      <div class="met"><div class="ml">Pivots</div><div class="mv" id="m5">—</div></div>
+      <div class="met"><div class="ml">Velocity</div><div class="mv" id="m6">—</div></div>
+      <div class="met"><div class="ml">Leg Ratio</div><div class="mv" id="m7">—</div></div>
+      <div class="met"><div class="ml">Amplitude</div><div class="mv" id="m8">—</div></div>
+    </div>
+  </div>
+
+</div><!-- app -->
+
+<!-- ═══ DETAIL DRAWER ═══ -->
+<div id="dw">
+  <div class="dwh">
+    <div style="flex:1">
+      <div class="dwtk" id="dwtk">—</div>
+      <div class="dwsb" id="dwsb">—</div>
+    </div>
+    <div class="dwpr" id="dwpr"></div>
+    <span id="dwtr" class="tbadge t-co" style="margin-top:3px"></span>
+    <button class="dwcl" onclick="closeDW()">✕</button>
+  </div>
+  <div id="dws"></div>
 </div>
 
 <script>
-const API = QS.API;
-let chart=null, cs=null, xtra=[], chartTf='1d', rows=[], activeRow=null;
-const ST = 'qs_scanner_v3';
+/* ════════════════════════════════════════════════
+   STATE & GLOBALS
+════════════════════════════════════════════════ */
+const API = '/api';
+let chart = null, cs = null, xtra = [];
+let chartTF = '1d';
+let rows = [], activeIdx = -1, sortKey = 'bars_ago';
 
-// ── Trend color helpers ──────────────────────────────────────────────
-const UP_SET  = new Set(['strong_uptrend','continuous_uptrend','up','semi-up','weakening_uptrend','bullish_mitigation']);
-const DN_SET  = new Set(['strong_downtrend','continuous_downtrend','down','weakening_downtrend']);
-function trendColor(t) {
-  if (UP_SET.has(t))  return '#22c55e';
-  if (DN_SET.has(t))  return '#ef4444';
-  if (t==='transitioning') return '#f59e0b';
+// AbortController — cancels stale chart fetches
+let pendingAbort = null, pendingTicker = null;
+
+const G = id => document.getElementById(id);
+
+const UP = new Set(['strong_uptrend','continuous_uptrend','up','semi-up','weakening_uptrend','bullish_mitigation']);
+const DN = new Set(['strong_downtrend','continuous_downtrend','down','weakening_downtrend']);
+const tCls = t => UP.has(t) ? 't-up' : DN.has(t) ? 't-dn' : 't-co';
+const tCol = t => {
+  if (UP.has(t)) return '#22c55e';
+  if (DN.has(t)) return '#ef4444';
+  if (t === 'transitioning') return '#f59e0b';
   return '#8892a0';
-}
-function trendDotColor(t) { return trendColor(t); }
+};
 
-// ── Multi-order toggle ───────────────────────────────────────────────
-function toggleMO(enabled) {
-  document.getElementById('mo-inputs').classList.toggle('mo-disabled', !enabled);
+const ZT = {
+  rbr:           { bg:'rgba(34,197,94,.1)',   c:'#22c55e', b:'rgba(34,197,94,.3)' },
+  dbr:           { bg:'rgba(45,212,191,.1)',  c:'#2dd4bf', b:'rgba(45,212,191,.3)' },
+  dbd:           { bg:'rgba(239,68,68,.1)',   c:'#ef4444', b:'rgba(239,68,68,.3)' },
+  rbd:           { bg:'rgba(249,115,22,.1)',  c:'#f97316', b:'rgba(249,115,22,.3)' },
+  consolidation: { bg:'rgba(167,139,250,.1)', c:'#a78bfa', b:'rgba(167,139,250,.3)' },
+};
+
+/* ════════════════════════════════════════════════
+   SIDEBAR TOGGLE — re-expand also works
+════════════════════════════════════════════════ */
+function toggleSB() {
+  const sb = G('sidebar');
+  sb.classList.toggle('col');
+  // When collapsing the trend dropdown must close too
+  if (sb.classList.contains('col')) {
+    G('tdd').classList.remove('op');
+    G('ttrig').classList.remove('op');
+  }
+}
+
+/* ════════════════════════════════════════════════
+   FORM HELPERS
+════════════════════════════════════════════════ */
+function stp(id, d) {
+  const e = G(id);
+  const s = parseFloat(e.step) || 1;
+  e.value = s < 1
+    ? parseFloat((parseFloat(e.value) + d).toFixed(2))
+    : Math.round(parseFloat(e.value) + d);
+}
+
+function setDir(btn) {
+  G('dir-seg').querySelectorAll('.seg-btn').forEach(b => b.className = 'seg-btn');
+  btn.className = 'seg-btn ' + (btn.dataset.v === 'buy' ? 'buy' : 'sell');
+}
+function getDir() {
+  const a = G('dir-seg').querySelector('.buy, .sell');
+  return a?.dataset.v || 'buy';
+}
+
+function setTFC(btn) {
+  G('tfc-row').querySelectorAll('.tfc').forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+}
+function getTF() { return G('tfc-row').querySelector('.tfc.on')?.dataset.v || '1d'; }
+
+/* Trend dropdown */
+function toggleTDD(e) {
+  e.stopPropagation();
+  G('tdd').classList.toggle('op');
+  G('ttrig').classList.toggle('op');
+}
+document.addEventListener('click', () => {
+  G('tdd').classList.remove('op');
+  G('ttrig').classList.remove('op');
+});
+G('tdd').addEventListener('click', e => e.stopPropagation());
+function allT(cb) { document.querySelectorAll('.tc').forEach(c => c.checked = cb.checked); updTL(); }
+function updTL() {
+  const all = document.querySelectorAll('.tc');
+  const chk = [...all].filter(c => c.checked);
+  G('all-t').checked = chk.length === all.length;
+  G('all-t').indeterminate = chk.length > 0 && chk.length < all.length;
+  G('tlbl').textContent = chk.length === all.length ? 'All trends' : chk.length === 0 ? 'No trends' : `${chk.length} selected`;
+}
+document.querySelectorAll('.tc').forEach(cb => cb.addEventListener('change', updTL));
+function getSelTrends() {
+  const c = [...document.querySelectorAll('.tc')].filter(x => x.checked).map(x => x.value);
+  return c.length === document.querySelectorAll('.tc').length ? '' : c.join(',');
+}
+
+function toggleMO(en) { G('mob').classList.toggle('hid', !en); }
+
+/* ════════════════════════════════════════════════
+   SCAN
+════════════════════════════════════════════════ */
+async function runScan() {
+  const btn = G('scanbtn');
+  btn.disabled = true; btn.textContent = '⏳  Scanning…';
+  G('nst').textContent = 'scanning…';
+  G('rlist').innerHTML = Array(7).fill(0).map(() =>
+    `<div class="shrow"><div class="sh" style="height:11px;width:38%"></div><div class="sh" style="height:9px;width:58%"></div></div>`
+  ).join('');
+  G('rcnt').textContent = '…';
+  activeIdx = -1;
+
+  try {
+    const mo = G('moen').checked;
+    const tr = getSelTrends();
+    const p = new URLSearchParams({
+      direction:    getDir(),
+      interval:     getTF(),
+      order:        G('order').value,
+      zone_lookback:G('zlb').value,
+      legout_mult:  G('legout').value,
+      strategy:     G('strat').value,
+      multi_order:  mo,
+      order_low:    G('mol').value,
+      order_mid:    G('mom').value,
+      order_high:   G('moh').value,
+      trend_low:    G('molt').value,
+      trend_mid:    G('momt').value,
+      trend_high:   G('moht').value,
+    });
+    if (tr) p.set('trend_filter', tr);
+
+    const r = await fetch(`${API}/scan?${p}`);
+    const d = await r.json();
+    rows = d.results || [];
+
+    G('rcnt').textContent = rows.length;
+    G('nbadge').style.display = 'block';
+    G('nbadge').textContent = `${rows.length} setups`;
+    G('nst').textContent = `${rows.length} found`;
+
+    buildList();   // build HTML once — no re-render on clicks
+    saveState();
+  } catch(e) {
+    G('rlist').innerHTML = `<div class="empty-st"><span style="color:var(--red)">⚠ ${e.message}</span></div>`;
+    G('nst').textContent = 'error';
+  } finally {
+    btn.disabled = false; btn.textContent = '▶  Run Scan';
+  }
+}
+
+/* ════════════════════════════════════════════════
+   BUILD LIST — called once after scan / sort
+   NO css animation on rows → no flash on click
+════════════════════════════════════════════════ */
+function buildList() {
+  const list = G('rlist');
+  if (!rows.length) {
+    list.innerHTML = `<div class="empty-st"><div class="e-ico">◈</div><div class="e-txt">No zones found</div><div class="e-sub">Broaden trend filter or increase lookback</div></div>`;
+    return;
+  }
+  list.innerHTML = rows.map((r, i) => {
+    const z  = ZT[r.zone_type] || ZT.rbr;
+    const pr = '₹' + (r.close||0).toLocaleString('en-IN', {maximumFractionDigits:2});
+    const ac = activeIdx === i ? ' on' : '';
+    return `<div class="sr${ac}" data-i="${i}" onclick="selStock(${i})">
+      <div>
+        <div class="srn">${r.ticker.replace('.NS','')}</div>
+        <div class="srm">
+          <span class="tbadge ${tCls(r.trend)}">${(r.trend||'').replace(/_/g,' ')}</span>
+          <span style="font-family:var(--mono);font-size:9px">ATR ${r.atr_pct}%</span>
+        </div>
+      </div>
+      <div class="srp">${pr}</div>
+      <div class="srz">
+        <span class="sra">${r.bars_ago}b</span>
+        <span class="srt" style="background:${z.bg};color:${z.c};border:1px solid ${z.b}">${(r.zone_type||'rbr').toUpperCase()}</span>
+      </div>
+      <button class="ibtn" onclick="openDW(event,${i})" title="Details">ⓘ</button>
+    </div>`;
+  }).join('');
+}
+
+/* ════════════════════════════════════════════════
+   MARK ACTIVE — only toggles CSS class, zero re-render → no flash
+════════════════════════════════════════════════ */
+function markActive(i) {
+  document.querySelectorAll('.sr.on').forEach(e => e.classList.remove('on'));
+  const el = document.querySelector(`.sr[data-i="${i}"]`);
+  if (el) el.classList.add('on');
+  activeIdx = i;
+}
+
+/* ════════════════════════════════════════════════
+   SELECT STOCK
+════════════════════════════════════════════════ */
+async function selStock(i) {
+  const row = rows[i]; if (!row) return;
+  markActive(i);
+
+  G('cptk').textContent = row.ticker.replace('.NS','');
+  G('cppr').textContent = '₹' + (row.close||0).toLocaleString('en-IN', {maximumFractionDigits:2});
+  const te = G('cptr');
+  te.textContent = (row.trend||'').replace(/_/g,' ');
+  te.className   = 'tbadge ' + tCls(row.trend);
+  te.style.display = 'inline-block';
+
+  G('m1').textContent = row.atr_pct + '%';
+  G('m2').textContent = row.trend_strength || '—';
+  G('m3').textContent = row.zones_count ?? '—';
+  G('m4').textContent = row.bars_ago + 'b';
+  G('m5').textContent = row.pivot_count ?? '—';
+  const vs = (row.vel_current||0) >= 0 ? '+' : '';
+  G('m6').textContent = `${vs}${row.vel_current}`;
+  G('m6').className   = 'mv ' + ((row.vel_current||0) >= 0 ? 'pos' : 'neg');
+  G('m7').textContent = (row.lr_ratio||0) + '×';
+  G('m7').className   = 'mv ' + ((row.lr_ratio||1) >= 1 ? 'pos' : 'neg');
+  G('m8').textContent = row.amp_avg || '—';
+
+  await loadChart(row);
   saveState();
 }
 
-// ── Trend dropdown (existing) ────────────────────────────────────────
-function toggleTrendDD(e) {
+/* ════════════════════════════════════════════════
+   SORT
+════════════════════════════════════════════════ */
+function sortBy(k) {
+  sortKey = k;
+  document.querySelectorAll('.srtb').forEach(b => b.classList.remove('on'));
+  G(k === 'bars_ago' ? 's-age' : 's-atr').classList.add('on');
+  rows.sort((a,b) => (a[k]||0) - (b[k]||0));
+  buildList();
+  if (activeIdx >= 0) markActive(activeIdx);
+}
+
+/* ════════════════════════════════════════════════
+   CHART — AbortController prevents stale renders
+════════════════════════════════════════════════ */
+function initChart() {
+  const wrap = G('cw');
+  if (chart) { try { chart.remove(); } catch(e){} chart = null; cs = null; xtra = []; }
+  const cl = G('cload');
+  wrap.innerHTML = '';
+  wrap.appendChild(cl);
+
+  chart = LightweightCharts.createChart(wrap, {
+    width: wrap.clientWidth, height: wrap.clientHeight || 400,
+    layout:    { background: { color: '#0d0f12' }, textColor: '#8892a0' },
+    grid:      { vertLines: { color: '#1a1f28' }, horzLines: { color: '#1a1f28' } },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+    rightPriceScale: { borderColor: '#2a3040' },
+    timeScale: { borderColor: '#2a3040', timeVisible: true, secondsVisible: false },
+  });
+  cs = chart.addCandlestickSeries({
+    upColor: '#22c55e', downColor: '#ef4444',
+    borderUpColor: '#22c55e', borderDownColor: '#ef4444',
+    wickUpColor: '#22c55e', wickDownColor: '#ef4444',
+  });
+  new ResizeObserver(() => {
+    if (chart) chart.applyOptions({ width: wrap.clientWidth, height: wrap.clientHeight });
+  }).observe(wrap);
+}
+
+async function loadChart(row) {
+  // Cancel any in-flight fetch
+  if (pendingAbort) { pendingAbort.abort(); pendingAbort = null; }
+  pendingTicker = row.ticker;
+
+  if (!chart) initChart();
+
+  // Clear old zone series
+  xtra.forEach(s => { try { chart.removeSeries(s); } catch(e){} });
+  xtra = [];
+
+  G('cload').classList.add('show');
+  const ctrl = new AbortController();
+  pendingAbort = ctrl;
+
+  try {
+    const url = `${API}/chart/${encodeURIComponent(row.ticker)}`
+      + `?interval=${chartTF}`
+      + `&order=${G('order').value}`
+      + `&legout_mult=${G('legout').value}`
+      + `&strategy=${G('strat').value}`
+      + `&zone_lookback=${G('zlb').value}`
+      + `&multi_order=${G('moen').checked}`
+      + `&order_low=${G('mol').value}`
+      + `&order_mid=${G('mom').value}`
+      + `&order_high=${G('moh').value}`;
+
+    const res = await fetch(url, { signal: ctrl.signal });
+    const d   = await res.json();
+
+    // Discard if a newer request was started
+    if (pendingTicker !== row.ticker) return;
+    if (d.error) return;
+
+    cs.setData(d.candles);
+    cs.setMarkers((d.pivots||[]).map(p => ({
+      time: p.time,
+      position: p.type === 'T' ? 'aboveBar' : 'belowBar',
+      color:    p.type === 'T' ? '#ef4444'  : '#22c55e',
+      shape:    p.type === 'T' ? 'arrowDown': 'arrowUp',
+      size: 1,
+    })));
+
+    const dir   = row.direction || getDir();
+    const zones = dir === 'buy' ? (d.buy_zones||[]) : (d.sell_zones||[]);
+    renderZones(zones, d.candles, row.zone_legin_ts);
+    chart.timeScale().fitContent();
+
+  } catch(e) {
+    if (e.name === 'AbortError') return; // silently ignore cancelled requests
+    console.warn('Chart load error:', e);
+  } finally {
+    if (pendingTicker === row.ticker) {
+      G('cload').classList.remove('show');
+      pendingAbort = null;
+    }
+  }
+}
+
+function renderZones(zones, candles, aLI) {
+  if (!candles?.length) return;
+  const first  = candles[0].time;
+  const last   = candles[candles.length-1].time;
+  const bSec   = candles.length > 1 ? last - candles[candles.length-2].time : 86400;
+  const CL = { rbr:'#22c55e', dbr:'#2dd4bf', dbd:'#ef4444', rbd:'#f97316', consolidation:'#a78bfa' };
+
+  zones.sort((a,b) => a.time_start - b.time_start).forEach(z => {
+    if (!z.price_high || !z.price_low || z.price_high <= z.price_low) return;
+    const ts0 = Math.max(z.time_start, first);
+    const ts1 = Math.max(last + bSec*5, z.time_end + bSec*3);
+    if (ts0 > last) return;
+
+    const inv = z.status === 'invalidated';
+    const isA = aLI && Math.abs(z.time_start - aLI) <= 86400;
+    const col = inv ? '#666' : (CL[z.zone_type] || '#22c55e');
+    const lw  = isA ? 2 : 1;
+    const ls  = inv ? 2 : 0;
+    const ca  = inv ? '55' : isA ? 'ff' : 'bb';
+    const fa  = inv ? '0d' : isA ? '44' : '22';
+
+    try {
+      const top = chart.addLineSeries({ color:col+ca, lineWidth:lw, lineStyle:ls, crosshairMarkerVisible:false, lastValueVisible:false, priceLineVisible:false });
+      top.setData([{time:ts0,value:z.price_high},{time:ts1,value:z.price_high}]);
+      const bot = chart.addLineSeries({ color:col+ca, lineWidth:lw, lineStyle:ls, crosshairMarkerVisible:false, lastValueVisible:false, priceLineVisible:false });
+      bot.setData([{time:ts0,value:z.price_low},{time:ts1,value:z.price_low}]);
+      const fill = chart.addBaselineSeries({ baseValue:{type:'price',price:z.price_low}, topLineColor:'transparent', topFillColor1:col+fa, topFillColor2:col+'0d', bottomLineColor:'transparent', bottomFillColor1:'transparent', bottomFillColor2:'transparent', lineWidth:0, crosshairMarkerVisible:false, lastValueVisible:false, priceLineVisible:false });
+      fill.setData([{time:ts0,value:z.price_high},{time:ts1,value:z.price_high}]);
+      xtra.push(top, bot, fill);
+    } catch(e){}
+  });
+}
+
+function setChTF(tf, btn) {
+  chartTF = tf;
+  document.querySelectorAll('.tfg .tfb').forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  const row = rows[activeIdx];
+  if (row) loadChart(row);
+}
+
+/* ════════════════════════════════════════════════
+   DRAWER
+════════════════════════════════════════════════ */
+function openDW(e, i) {
   e.stopPropagation();
-  document.getElementById('trend-dd').classList.toggle('open');
-}
-document.addEventListener('click', () => document.getElementById('trend-dd').classList.remove('open'));
-document.getElementById('trend-dd').addEventListener('click', e => e.stopPropagation());
+  const r = rows[i]; if (!r) return;
 
-function toggleAllTrends(cb) {
-  document.querySelectorAll('.tc').forEach(c => c.checked = cb.checked);
-  updateTrendLabel();
-}
-function updateTrendLabel() {
-  const all = document.querySelectorAll('.tc');
-  const chk = [...all].filter(c => c.checked);
-  const allCb = document.getElementById('all-trends');
-  allCb.checked = chk.length === all.length;
-  allCb.indeterminate = chk.length > 0 && chk.length < all.length;
-  document.getElementById('trend-label').textContent =
-    chk.length === all.length ? 'All trends' :
-    chk.length === 0          ? 'No trends selected' :
-    `${chk.length} trend${chk.length>1?'s':''} selected`;
-}
-document.querySelectorAll('.tc').forEach(cb => cb.addEventListener('change', () => { updateTrendLabel(); saveState(); }));
+  G('dwtk').textContent = r.ticker.replace('.NS','');
+  G('dwsb').textContent = `${(r.trend||'').replace(/_/g,' ')} · ${r.pivot_count} pivots · ATR ${r.atr_pct}%`;
+  G('dwpr').textContent = '₹' + (r.close||0).toLocaleString('en-IN', {maximumFractionDigits:2});
+  G('dwtr').textContent = (r.trend||'').replace(/_/g,' ');
+  G('dwtr').className   = 'tbadge ' + tCls(r.trend);
+  G('dws').innerHTML    = buildDW(r);
 
-function getSelectedTrends() {
-  const chk = [...document.querySelectorAll('.tc')].filter(c => c.checked).map(c => c.value);
-  return chk.length === document.querySelectorAll('.tc').length ? '' : chk.join(',');
+  G('dw').classList.add('open');
+  G('dov').classList.add('show');
+}
+function closeDW() {
+  G('dw').classList.remove('open');
+  G('dov').classList.remove('show');
 }
 
-function G(id) { return document.getElementById(id); }
+function buildDW(r) {
+  const vp  = (r.vel_current||0) >= 0;
+  const vs  = vp ? '+' : '';
+  const ac  = r.vel_label === 'accelerating' ? '↑ Accel' : r.vel_label === 'decelerating' ? '↓ Decel' : '→ Steady';
+  const vw  = Math.min(Math.abs(r.vel_current||0) / Math.max(r.vel_avg||.001,.001) * 45, 45);
+  const zt  = ZT[r.zone_type] || ZT.rbr;
+  const zsc = r.zone_status === 'fresh' ? '#22c55e' : r.zone_status === 'tested' ? '#f59e0b' : 'var(--muted2)';
 
-// ── State persistence ────────────────────────────────────────────────
+  // MO block
+  let mo = '';
+  if (r.mo_low_trend) {
+    const lvs = [
+      {l:'H', c:'moH', o:r.mo_order_high, t:r.mo_high_trend, s:r.mo_high_score},
+      {l:'M', c:'moM', o:r.mo_order_mid,  t:r.mo_mid_trend,  s:r.mo_mid_score},
+      {l:'L', c:'moL', o:r.mo_order_low,  t:r.mo_low_trend,  s:r.mo_low_score},
+    ];
+    const dots = '●'.repeat(r.mo_alignment||0) + '○'.repeat(3-(r.mo_alignment||0));
+    mo = `<div>
+      <div class="dwst">Multi-Order Trend <span style="color:var(--amber);font-size:9px;font-weight:400">${dots} ${r.mo_alignment}/3</span></div>
+      ${lvs.map(lv => {
+        const col = tCol(lv.t||'sw');
+        const p   = Math.round(((lv.s||0)+1)/2*100);
+        return `<div class="mobr">
+          <span class="molk ${lv.c}">${lv.l}(${lv.o})</span>
+          <div class="mobi">
+            <span class="mobt" style="color:${col}">${(lv.t||'—').replace(/_/g,' ')}</span>
+            <div class="mobtr"><div class="mobtf" style="width:${p}%;background:${col}"></div></div>
+          </div>
+          <span class="mobp">${p}%</span>
+        </div>`;
+      }).join('')}
+    </div>`;
+  }
+
+  return `${mo}
+  <div>
+    <div class="dwst">Zone Info</div>
+    <div class="ig2">
+      <div class="it"><div class="itl">Zone High</div><div class="itv">₹${(r.zone_high||0).toLocaleString('en-IN',{maximumFractionDigits:2})}</div></div>
+      <div class="it"><div class="itl">Zone Low</div><div class="itv">₹${(r.zone_low||0).toLocaleString('en-IN',{maximumFractionDigits:2})}</div></div>
+      <div class="it"><div class="itl">Type</div><div class="itv" style="color:${zt.c}">${(r.zone_type||'rbr').toUpperCase()}</div></div>
+      <div class="it"><div class="itl">Status</div><div class="itv" style="color:${zsc}">${r.zone_status||'—'}</div></div>
+      <div class="it"><div class="itl">Age</div><div class="itv">${r.bars_ago} bars</div></div>
+      <div class="it"><div class="itl">Vol Score</div><div class="itv">${r.vol_score!=null?(r.vol_score*100).toFixed(0)+'%':'—'}</div></div>
+    </div>
+  </div>
+  <div>
+    <div class="dwst">Velocity</div>
+    <div class="vb">
+      <div class="vc"></div>
+      <div class="vf" style="${vp ? `left:50%;width:${vw}%;background:rgba(34,197,94,.25)` : `right:50%;width:${vw}%;background:rgba(239,68,68,.25)`}"></div>
+      <span class="vlbl" style="color:${vp?'#22c55e':'#ef4444'}">${vs}${r.vel_current} pts/bar · ${ac}</span>
+    </div>
+    <div class="ig2" style="margin-top:6px">
+      <div class="it"><div class="itl">Avg Velocity</div><div class="itv">${r.vel_avg}</div></div>
+      <div class="it"><div class="itl">Acceleration</div><div class="itv" style="color:${r.vel_label==='accelerating'?'#22c55e':r.vel_label==='decelerating'?'#ef4444':'var(--text)'}">${r.vel_label||'—'}</div></div>
+    </div>
+  </div>
+  <div>
+    <div class="dwst">Amplitude</div>
+    <div class="ig3">
+      <div class="it"><div class="itl">Avg</div><div class="itv">${r.amp_avg}</div><div class="its">${r.amp_regime||'—'}</div></div>
+      <div class="it"><div class="itl">Recent</div><div class="itv">${r.amp_recent}</div><div class="its">${(r.amp_variance||0).toFixed(1)}% var</div></div>
+      <div class="it"><div class="itl">Regime</div><div class="itv" style="font-size:10px;${r.amp_regime==='expanding'?'color:#22c55e':r.amp_regime==='contracting'?'color:#ef4444':''}">${r.amp_regime||'—'}</div></div>
+    </div>
+  </div>
+  <div>
+    <div class="dwst">Leg Ratio</div>
+    <div class="ig3">
+      <div class="it"><div class="itl">Ratio</div><div class="itv" style="color:${(r.lr_ratio||1)>=1?'#22c55e':'#ef4444'}">${r.lr_ratio}×</div><div class="its">${(r.lr_label||'').replace(/_/g,' ')}</div></div>
+      <div class="it"><div class="itl">Bull Avg</div><div class="itv pos">${r.lr_bull}</div></div>
+      <div class="it"><div class="itl">Bear Avg</div><div class="itv neg">${r.lr_bear}</div></div>
+    </div>
+    <div class="it" style="margin-top:6px">
+      <div class="itl">Recent vs Overall</div>
+      <div style="margin-top:4px;font-size:11px;color:var(--text)">
+        <span style="font-family:var(--mono);color:${(r.lr_recent||1)>=1?'#22c55e':'#ef4444'}">${r.lr_recent}×</span>
+        recent vs <span style="font-family:var(--mono)">${r.lr_ratio}×</span> overall ·
+        <span style="color:var(--muted)">${(r.lr_label||'').replace(/_/g,' ')}</span>
+      </div>
+    </div>
+  </div>
+  <div style="padding-bottom:8px">
+    <div class="dwst">Market Context</div>
+    <div class="ig2">
+      <div class="it"><div class="itl">ATR %</div><div class="itv">${r.atr_pct}%</div></div>
+      <div class="it"><div class="itl">ATR pts</div><div class="itv">₹${r.atr}</div></div>
+      <div class="it"><div class="itl">Pivot Count</div><div class="itv">${r.pivot_count}</div></div>
+      <div class="it"><div class="itl">Trend Strength</div><div class="itv" style="font-size:10px">${r.trend_strength||'—'}</div></div>
+    </div>
+  </div>`;
+}
+
+/* ════════════════════════════════════════════════
+   SESSION STATE
+════════════════════════════════════════════════ */
+const SS = 'qs_v6';
 function saveState() {
-  const trends = [...document.querySelectorAll('.tc')].map(c => ({v:c.value,ch:c.checked}));
-  sessionStorage.setItem(ST, JSON.stringify({
-    dir: G('dir').value, itv: G('itv').value,
-    order: G('order').value, zlb: G('zlb').value,
-    legout: G('legout').value, strategy: G('strategy').value,
-    chartTf, rows, activeTicker: activeRow?.ticker, trends,
-    mo_enable:     G('mo-enable').checked,
-    mo_order_high: G('mo-order-high').value,
-    mo_order_mid:  G('mo-order-mid').value,
-    mo_order_low:  G('mo-order-low').value,
-    mo_trend_high: G('mo-trend-high').value,
-    mo_trend_mid:  G('mo-trend-mid').value,
-    mo_trend_low:  G('mo-trend-low').value,
-  }));
+  try {
+    sessionStorage.setItem(SS, JSON.stringify({
+      rows, activeIdx, chartTF,
+      dir:      getDir(),
+      tf:       getTF(),
+      strategy: G('strat').value,
+      order:    G('order').value,
+      zlb:      G('zlb').value,
+      legout:   G('legout').value,
+      moEn:     G('moen').checked,
+      sbCol:    G('sidebar').classList.contains('col'),
+    }));
+  } catch(e){}
 }
 
 function restoreState() {
   try {
-    const s = JSON.parse(sessionStorage.getItem(ST)||'null');
+    const s = JSON.parse(sessionStorage.getItem(SS)||'null');
     if (!s) return;
-    if (s.dir)      G('dir').value      = s.dir;
-    if (s.itv)      G('itv').value      = s.itv;
-    if (s.order)    G('order').value    = s.order;
-    if (s.zlb)      G('zlb').value      = s.zlb;
-    if (s.legout)   G('legout').value   = s.legout;
-    if (s.strategy) G('strategy').value = s.strategy;
-    if (s.chartTf) {
-      chartTf = s.chartTf;
-      document.querySelectorAll('.tf-btn').forEach(b => {
-        const map = {'1d':'1D','1wk':'1W','1h':'1H'};
-        b.classList.toggle('active', b.textContent === map[chartTf]);
+    if (s.strategy) G('strat').value = s.strategy;
+    if (s.order)    G('order').value  = s.order;
+    if (s.zlb)      G('zlb').value    = s.zlb;
+    if (s.legout)   G('legout').value = s.legout;
+    if (s.moEn)     { G('moen').checked = true; toggleMO(true); }
+    if (s.sbCol)    G('sidebar').classList.add('col');
+    if (s.tf) G('tfc-row').querySelectorAll('.tfc').forEach(b => b.classList.toggle('on', b.dataset.v === s.tf));
+    if (s.chartTF) {
+      chartTF = s.chartTF;
+      document.querySelectorAll('.tfg .tfb').forEach(b => b.classList.toggle('on', b.textContent.toLowerCase() === chartTF));
+    }
+    if (s.dir) {
+      G('dir-seg').querySelectorAll('.seg-btn').forEach(b => {
+        b.className = 'seg-btn';
+        if (b.dataset.v === s.dir) b.className = 'seg-btn ' + s.dir;
       });
     }
-    if (s.trends) {
-      s.trends.forEach(t => {
-        const cb = document.querySelector(`.tc[value="${t.v}"]`);
-        if (cb) cb.checked = t.ch;
-      });
-      updateTrendLabel();
-    }
-    // Multi-order state
-    if (s.mo_enable !== undefined) {
-      G('mo-enable').checked = s.mo_enable;
-      toggleMO(s.mo_enable);
-    }
-    if (s.mo_order_high) G('mo-order-high').value = s.mo_order_high;
-    if (s.mo_order_mid)  G('mo-order-mid').value  = s.mo_order_mid;
-    if (s.mo_order_low)  G('mo-order-low').value  = s.mo_order_low;
-    if (s.mo_trend_high) G('mo-trend-high').value = s.mo_trend_high;
-    if (s.mo_trend_mid)  G('mo-trend-mid').value  = s.mo_trend_mid;
-    if (s.mo_trend_low)  G('mo-trend-low').value  = s.mo_trend_low;
-
     if (s.rows?.length) {
       rows = s.rows;
-      QS.navBadge(`${rows.length} setups`);
-      renderList(rows);
-      if (s.activeTicker) {
-        setTimeout(() => {
-          const row = rows.find(r => r.ticker === s.activeTicker);
-          if (row) selectStock(row.ticker, row, false);
-        }, 200);
-      }
+      G('rcnt').textContent = rows.length;
+      G('nbadge').style.display = 'block';
+      G('nbadge').textContent   = `${rows.length} setups`;
+      buildList();
+      if (s.activeIdx >= 0) setTimeout(() => selStock(s.activeIdx), 300);
     }
-  } catch(e) {}
+  } catch(e){}
 }
 
-// ── Chart ────────────────────────────────────────────────────────────
-function initChart() {
-  const wrap = G('chart-wrap');
-  wrap.innerHTML = '';
-  if (chart) { try { chart.remove(); } catch(e){} }
-  xtra = [];
-  chart = LightweightCharts.createChart(wrap, {
-    width: wrap.clientWidth, height: wrap.clientHeight || 400,
-    layout:    { background:{color:'#0d0f12'}, textColor:'#8892a0' },
-    grid:      { vertLines:{color:'#1e2530'}, horzLines:{color:'#1e2530'} },
-    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-    rightPriceScale: { borderColor:'#2a3040' },
-    timeScale: { borderColor:'#2a3040', timeVisible:true, secondsVisible:false },
-  });
-  cs = chart.addCandlestickSeries({
-    upColor:'#22c55e', downColor:'#ef4444',
-    borderUpColor:'#22c55e', borderDownColor:'#ef4444',
-    wickUpColor:'#22c55e', wickDownColor:'#ef4444',
-  });
-  new ResizeObserver(() => {
-    if (chart) chart.applyOptions({ width:wrap.clientWidth, height:wrap.clientHeight });
-  }).observe(wrap);
-}
-
-function renderChart(d, activeZone) {
-  xtra.forEach(s => { try { chart.removeSeries(s); } catch(e){} });
-  xtra = [];
-
-  cs.setData(d.candles);
-  cs.setMarkers((d.pivots||[]).map(p => ({
-    time:     p.time,
-    position: p.type==='T' ? 'aboveBar' : 'belowBar',
-    color:    p.type==='T' ? '#ef4444'  : '#22c55e',
-    shape:    p.type==='T' ? 'arrowDown': 'arrowUp',
-    size: 1,
-  })));
-
-  const dir      = d.direction || 'buy';
-  const allZones = dir === 'buy' ? (d.buy_zones||[]) : (d.sell_zones||[]);
-
-  const TYPE_COLOR = {
-    rbr:'#22c55e', dbr:'#2dd4bf', dbd:'#ef4444',
-    rbd:'#f97316', consolidation:'#a78bfa',
-  };
-
-  const candles   = d.candles || [];
-  const firstTime = candles.length ? candles[0].time : 0;
-  const lastTime  = candles.length ? candles[candles.length-1].time : 0;
-  const barSec    = candles.length > 1 ? candles[candles.length-1].time - candles[candles.length-2].time : 86400;
-
-  const TOLERANCE = 86400;
-  const activeTs  = activeZone?.zone_legin_ts ?? null;
-
-  const sorted = [...allZones].sort((a, b) => a.time_start - b.time_start);
-
-  sorted.forEach(z => {
-    const isActive = activeTs !== null && Math.abs(z.time_start - activeTs) <= TOLERANCE;
-    const status   = z.status    || 'fresh';
-    const ztype    = z.zone_type || 'rbr';
-    const color    = TYPE_COLOR[ztype] || '#22c55e';
-    const isInval  = status === 'invalidated';
-
-    const ts0 = Math.max(z.time_start, firstTime);
-    const ts1 = Math.max(lastTime + barSec * 5, z.time_end + barSec * 3);
-
-    if (!z.price_high || !z.price_low || z.price_high <= z.price_low) return;
-    if (ts0 > lastTime) return;
-
-    let borderAlpha, fillAlpha1, fillAlpha2, lineStyle, lineWidth, drawColor;
-
-    if (isInval) {
-      drawColor='#888888'; borderAlpha='55'; fillAlpha1='18'; fillAlpha2='10'; lineStyle=2; lineWidth=1;
-    } else if (isActive) {
-      drawColor=color; borderAlpha='ff'; fillAlpha1='66'; fillAlpha2='44'; lineStyle=0; lineWidth=2;
-    } else if (status==='fresh') {
-      drawColor=color; borderAlpha='cc'; fillAlpha1='44'; fillAlpha2='28'; lineStyle=0; lineWidth=1;
-    } else {
-      drawColor=color; borderAlpha='99'; fillAlpha1='33'; fillAlpha2='1e'; lineStyle=0; lineWidth=1;
-    }
-
-    try {
-      const sTop = chart.addLineSeries({ color:drawColor+borderAlpha, lineWidth, lineStyle, crosshairMarkerVisible:false, lastValueVisible:false, priceLineVisible:false });
-      sTop.setData([{time:ts0,value:z.price_high},{time:ts1,value:z.price_high}]);
-
-      const sBot = chart.addLineSeries({ color:drawColor+borderAlpha, lineWidth, lineStyle, crosshairMarkerVisible:false, lastValueVisible:false, priceLineVisible:false });
-      sBot.setData([{time:ts0,value:z.price_low},{time:ts1,value:z.price_low}]);
-
-      const sFill = chart.addBaselineSeries({
-        baseValue:{type:'price',price:z.price_low},
-        topLineColor:'transparent', topFillColor1:drawColor+fillAlpha1, topFillColor2:drawColor+fillAlpha2,
-        bottomLineColor:'transparent', bottomFillColor1:'transparent', bottomFillColor2:'transparent',
-        lineWidth:0, crosshairMarkerVisible:false, lastValueVisible:false, priceLineVisible:false,
-      });
-      sFill.setData([{time:ts0,value:z.price_high},{time:ts1,value:z.price_high}]);
-      xtra.push(sTop, sBot, sFill);
-    } catch(err) {}
-  });
-
-  // ── Update multi-order badge in chart header ───────────────────────
-  const mo = d.multiorder;
-  const badge = G('mo-hdr-badge');
-  if (mo) {
-    badge.style.display = 'inline-flex';
-    const combined = mo.combined_trend || '–';
-    G('mo-hdr-combined').textContent = combined.replace(/_/g,' ');
-    badge.style.background = trendColor(combined) + '22';
-    badge.style.border     = `1px solid ${trendColor(combined)}66`;
-    badge.style.color      = trendColor(combined);
-
-    // Alignment dots
-    const dots = G('mo-hdr-dots');
-    dots.innerHTML = ['high','mid','low'].map(lv => {
-      const c = trendDotColor(mo[lv]?.trend || 'sw');
-      return `<span class="mo-dot" style="background:${c}" title="${lv}"></span>`;
-    }).join('');
-
-    // Tooltip
-    G('mo-hdr-tooltip').innerHTML = `
-      <div style="font-size:10px;color:var(--muted);margin-bottom:6px;font-weight:700">MULTI-ORDER BREAKDOWN</div>
-      ${['high','mid','low'].map(lv => {
-        const lv_data = mo[lv];
-        const t = lv_data?.trend || '–';
-        const s = lv_data?.score ?? 0;
-        const c = trendColor(t);
-        const pct = Math.round((s + 1) / 2 * 100);
-        return `<div class="mo-tt-row">
-          <span class="mo-tt-lbl">${lv.toUpperCase()}(${lv_data?.order})</span>
-          <span class="mo-tt-val" style="color:${c}">${t.replace(/_/g,' ')}</span>
-          <span style="font-size:10px;color:var(--muted)">${pct}%</span>
-        </div>`;
-      }).join('')}
-      <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);font-size:10px">
-        Alignment: ${'●'.repeat(mo.alignment)}${'○'.repeat(3-mo.alignment)}
-      </div>`;
-  } else {
-    badge.style.display = 'none';
-  }
-
-  chart.timeScale().fitContent();
-}
-
-// ── Select stock ─────────────────────────────────────────────────────
-async function selectStock(ticker, row, persist=true) {
-  activeRow = row;
-  document.querySelectorAll('.si').forEach(e => e.classList.remove('active'));
-  const el = document.querySelector(`.si[data-t="${ticker}"]`);
-  if (el) el.classList.add('active');
-
-  G('ct-t').textContent = ticker.replace('.NS','');
-  G('ct-p').textContent = row ? '₹'+(row.close||0).toLocaleString('en-IN') : '';
-  const tr = G('ct-tr');
-  tr.textContent = (row?.trend||'').replace(/_/g,' ');
-  tr.className   = 'tbadge ' + QS.tClass(row?.trend);
-
-  G('m1').textContent = row ? row.atr_pct+'%'      : '–';
-  G('m2').textContent = row?.trend_strength         || '–';
-  G('m3').textContent = row?.zones_count            ?? '–';
-  G('m4').textContent = row ? row.bars_ago+' bars'  : '–';
-  G('m5').textContent = row?.pivot_count            ?? '–';
-  G('m6').textContent = row ? (row.vel_current > 0 ? '+' : '') + row.vel_current + ' (' + row.vel_label + ')' : '–';
-  G('m7').textContent = row ? row.lr_ratio + '× ' + (row.lr_label||'').replace(/_/g,' ') : '–';
-  G('m8').textContent = row ? row.amp_avg + ' ' + (row.amp_regime||'') : '–';
-
-  if (!chart) initChart();
-
-  const moEnabled = G('mo-enable').checked;
-  try {
-    const useItv = chartTf !== '1d' ? chartTf : G('itv').value;
-    const url = `${API}/chart/${encodeURIComponent(ticker)}`
-      + `?interval=${useItv}`
-      + `&order=${G('order').value}`
-      + `&legout_mult=${G('legout').value}`
-      + `&strategy=${G('strategy').value}`
-      + `&zone_lookback=${G('zlb').value}`
-      + `&multi_order=${moEnabled}`
-      + `&order_low=${G('mo-order-low').value}`
-      + `&order_mid=${G('mo-order-mid').value}`
-      + `&order_high=${G('mo-order-high').value}`;
-
-    const r = await fetch(url);
-    const d = await r.json();
-    if (!d.error) {
-      d.direction = row?.direction || 'buy';
-      renderChart(d, row);
-    }
-  } catch(e) {}
-
-  if (persist) saveState();
-}
-
-function setTf(tf, btn) {
-  chartTf = tf;
-  document.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  if (activeRow) selectStock(activeRow.ticker, activeRow, false);
-  saveState();
-}
-
-// ── Scan ─────────────────────────────────────────────────────────────
-async function runScan() {
-  const btn = G('sbtn');
-  btn.disabled = true; btn.textContent = '⏳ Scanning…';
-  G('list').innerHTML = '<div class="empty-state"><div class="spin"></div><span>Scanning…</span></div>';
-
-  try {
-    const moEnabled = G('mo-enable').checked;
-    const trends    = getSelectedTrends();
-    const url = `${API}/scan?`
-      + `direction=${G('dir').value}`
-      + `&interval=${G('itv').value}`
-      + `&order=${G('order').value}`
-      + `&zone_lookback=${G('zlb').value}`
-      + `&legout_mult=${G('legout').value}`
-      + `&strategy=${G('strategy').value}`
-      + `&multi_order=${moEnabled}`
-      + `&order_low=${G('mo-order-low').value}`
-      + `&order_mid=${G('mo-order-mid').value}`
-      + `&order_high=${G('mo-order-high').value}`
-      + `&trend_low=${G('mo-trend-low').value}`
-      + `&trend_mid=${G('mo-trend-mid').value}`
-      + `&trend_high=${G('mo-trend-high').value}`
-      + (trends ? `&trend_filter=${encodeURIComponent(trends)}` : '');
-
-    const r = await fetch(url);
-    const d = await r.json();
-    rows = d.results || [];
-    QS.navBadge(`${rows.length} setups`);
-    renderList(rows);
-    saveState();
-  } catch(e) {
-    G('list').innerHTML = `<div class="empty-state"><span style="color:var(--red)">⚠ ${e.message}</span></div>`;
-  } finally {
-    btn.disabled = false; btn.textContent = '▶ Scan';
-  }
-}
-
-// ── Render list ───────────────────────────────────────────────────────
-function renderList(rs) {
-  const list = G('list');
-  if (!rs.length) {
-    list.innerHTML = '<div class="empty-state"><span>No zones found — adjust filters</span></div>';
-    return;
-  }
-
-  const ZONE_TYPE_STYLE = {
-    rbr:           'background:#14532d;color:#86efac',
-    dbr:           'background:#134e4a;color:#99f6e4',
-    dbd:           'background:#7f1d1d;color:#fca5a5',
-    rbd:           'background:#431407;color:#fdba74',
-    consolidation: 'background:#2e1065;color:#ddd6fe',
-  };
-  const ZONE_STATUS_STYLE = {
-    fresh:'color:#22c55e', tested:'color:#f59e0b', invalidated:'color:#6b7280',
-  };
-
-  list.innerHTML = rs.map((r,i) => {
-    const ztStyle  = ZONE_TYPE_STYLE[r.zone_type]   || ZONE_TYPE_STYLE.rbr;
-    const zsStyle  = ZONE_STATUS_STYLE[r.zone_status] || '';
-    const ztLabel  = (r.zone_type||'rbr').toUpperCase();
-    const moBlock  = r.mo_low_trend ? buildMOBlock(r) : '';
-    const velSign  = r.vel_current > 0 ? '+' : '';
-    const accelIcon = r.vel_label === 'accelerating' ? '↑' : r.vel_label === 'decelerating' ? '↓' : '→';
-
-    return `
-    <div class="si" data-t="${r.ticker}" data-i="${i}" id="si-${i}">
-      <div class="si-main" onclick="siClick(${i}, event)">
-        <div>
-          <div class="sname">${r.ticker.replace('.NS','')}</div>
-          <div class="smeta">${(r.trend||'').replace(/_/g,' ')} · ATR ${r.atr_pct}%</div>
-        </div>
-        <div class="sprice">₹${(r.close||0).toLocaleString('en-IN')}</div>
-        <div style="text-align:center">
-          <span class="tbadge ${QS.tClass(r.trend)}">${(r.trend||'').replace(/_/g,' ')}</span>
-        </div>
-        <div style="text-align:right">
-          <div class="szone" style="${zsStyle}">${r.bars_ago}b ago</div>
-          <div style="font-size:9px;margin-top:2px">
-            <span style="padding:1px 5px;border-radius:3px;${ztStyle}">${ztLabel}</span>
-          </div>
-        </div>
-      </div>
-      <div class="si-detail">
-        ${moBlock}
-        <div class="det-section">
-          <div class="det-title">Velocity · Amplitude · Leg Ratio</div>
-          <div class="det-grid">
-            <div class="det-tile">
-              <div class="det-tile-l">Velocity</div>
-              <div class="det-tile-v" style="color:${r.vel_current>=0?'var(--green)':'var(--red)'}">
-                ${velSign}${r.vel_current ?? '–'} pts/bar
-              </div>
-              <div class="det-tile-s">${accelIcon} ${r.vel_label||'–'}</div>
-            </div>
-            <div class="det-tile">
-              <div class="det-tile-l">Amplitude</div>
-              <div class="det-tile-v">${r.amp_avg ?? '–'}</div>
-              <div class="det-tile-s">${r.amp_regime||'–'} · ${r.amp_variance ?? '–'}% var</div>
-            </div>
-            <div class="det-tile">
-              <div class="det-tile-l">Leg Ratio</div>
-              <div class="det-tile-v" style="color:${r.lr_ratio>=1?'var(--green)':'var(--red)'}">
-                ${r.lr_ratio ?? '–'}×
-              </div>
-              <div class="det-tile-s">${(r.lr_label||'–').replace(/_/g,' ')}</div>
-            </div>
-          </div>
-          <div class="det-grid" style="margin-top:4px">
-            <div class="det-tile">
-              <div class="det-tile-l">Avg Velocity</div>
-              <div class="det-tile-v">${r.vel_avg ?? '–'}</div>
-            </div>
-            <div class="det-tile">
-              <div class="det-tile-l">Recent Amp</div>
-              <div class="det-tile-v">${r.amp_recent ?? '–'}</div>
-            </div>
-            <div class="det-tile">
-              <div class="det-tile-l">Recent Ratio</div>
-              <div class="det-tile-v">${r.lr_recent ?? '–'}×</div>
-              <div class="det-tile-s">Bull ${r.lr_bull ?? '–'} / Bear ${r.lr_bear ?? '–'}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-function buildMOBlock(r) {
-  const levels = [
-    { key:'high', label:'H', order: r.mo_order_high, trend: r.mo_high_trend, score: r.mo_high_score },
-    { key:'mid',  label:'M', order: r.mo_order_mid,  trend: r.mo_mid_trend,  score: r.mo_mid_score  },
-    { key:'low',  label:'L', order: r.mo_order_low,  trend: r.mo_low_trend,  score: r.mo_low_score  },
-  ];
-  const alignDots = '●'.repeat(r.mo_alignment||0) + '○'.repeat(3-(r.mo_alignment||0));
-  const rows = levels.map(lv => {
-    const c   = trendColor(lv.trend || 'sw');
-    const pct = Math.round(((lv.score ?? 0) + 1) / 2 * 100);
-    return `<div class="mo-bar-row">
-      <span class="mo-bar-lbl" style="color:${c}">${lv.label}(${lv.order})</span>
-      <span class="mo-bar-trend">${(lv.trend||'–').replace(/_/g,' ')}</span>
-      <div class="mo-bar-track">
-        <div class="mo-bar-fill" style="width:${pct}%;background:${c}"></div>
-      </div>
-      <span style="font-size:10px;color:var(--muted);width:30px;text-align:right">${pct}%</span>
-    </div>`;
-  }).join('');
-
-  return `<div class="det-section">
-    <div class="det-title">Multi-Order Trend &nbsp;<span style="color:var(--amber);font-weight:400">${alignDots} alignment ${r.mo_alignment}/3</span></div>
-    ${rows}
-  </div>`;
-}
-
-function siClick(i, e) {
-  const el  = document.getElementById(`si-${i}`);
-  const row = rows[i];
-
-  // Expand/collapse detail on click, select on stock name click
-  const wasExpanded = el.classList.contains('expanded');
-
-  // Always select
-  selectStock(row.ticker, row);
-
-  // Toggle expand
-  el.classList.toggle('expanded', !wasExpanded);
-}
-
-// ── Boot ──────────────────────────────────────────────────────────────
-['dir','itv','order','zlb','legout','strategy',
- 'mo-order-high','mo-order-mid','mo-order-low',
- 'mo-trend-high','mo-trend-mid','mo-trend-low'].forEach(id => {
-  G(id)?.addEventListener('change', saveState);
-});
+window.addEventListener('beforeunload', saveState);
 restoreState();
 </script>
 </body>
