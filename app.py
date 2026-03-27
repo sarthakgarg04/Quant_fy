@@ -654,6 +654,95 @@ def store_delete():
     return jsonify({"ok": delete_stored(symbol, interval)})
 
 
+
+# ─────────────────────────────────────────────────────────────
+# debugging:
+# ─────────────────────────────────────────────────────────────
+
+@app.route("/api/debug/pivots/<path:ticker>")
+def debug_pivots(ticker):
+    import traceback as tb
+    interval   = request.args.get("interval", "1d")
+    orders_raw = request.args.get("orders", "5,10,20")
+    orders     = [int(x.strip()) for x in orders_raw.split(",") if x.strip()]
+
+    df = load_stored_df(ticker, interval)
+    if df is None or df.empty:
+        df = fetch_ohlcv(ticker, interval=interval, days=500)
+    if df is None or df.empty:
+        return jsonify({"error": f"no data for {ticker}"}), 404
+
+    report = {"ticker": ticker, "interval": interval,
+               "candles": len(df), "orders": {}}
+
+    print(f"\n{'='*60}")
+    print(f"DEBUG PIVOTS  ticker={ticker}  interval={interval}  rows={len(df)}")
+
+    # Candle validation
+    candle_times = [int(pd.Timestamp(ts).timestamp()) for ts in df.index]
+    candle_dups  = len(candle_times) - len(set(candle_times))
+    candle_sorted = all(candle_times[i] < candle_times[i+1]
+                        for i in range(len(candle_times)-1))
+    report["candle_duplicates"]   = candle_dups
+    report["candle_times_sorted"] = candle_sorted
+
+    if candle_dups > 0:
+        print(f"  [CANDLES] WARN: {candle_dups} duplicate timestamps")
+    if not candle_sorted:
+        print(f"  [CANDLES] WARN: NOT sorted ascending")
+    else:
+        print(f"  [CANDLES] OK  : {len(df)} bars, sorted, 0 dups")
+
+    for order in orders:
+        try:
+            pvts = extrems(df, order=order)
+            pivot_list = [
+                {"time": int(pd.Timestamp(df.index[i]).timestamp()),
+                 "value": round(float(v), 2), "type": t}
+                for i, v, t in pvts
+            ]
+            times     = [p["time"]  for p in pivot_list]
+            values    = [p["value"] for p in pivot_list]
+            dups      = len(times) - len(set(times))
+            sorted_ok = all(times[i] < times[i+1] for i in range(len(times)-1))
+            has_nan   = any(v != v for v in values)
+            has_none  = any(v is None for v in values)
+
+            report["orders"][order] = {
+                "pivot_count": len(pvts),
+                "duplicates":  dups,
+                "sorted":      sorted_ok,
+                "has_nan":     has_nan,
+                "has_none":    has_none,
+                "sample_last3": pivot_list[-3:],
+            }
+
+            status = "OK  " if (dups==0 and sorted_ok and not has_nan and not has_none) else "FAIL"
+            print(f"  [ORDER={order:>3}] {status}: "
+                  f"{len(pvts):>4} pivots  sorted={sorted_ok}  "
+                  f"dups={dups}  nan={has_nan}  none={has_none}")
+
+            if dups > 0:
+                seen = set(); dup_times = []
+                for t in times:
+                    if t in seen: dup_times.append(t)
+                    seen.add(t)
+                print(f"    Dup timestamps: {dup_times[:5]}")
+
+            if not sorted_ok:
+                for i in range(len(times)-1):
+                    if times[i] >= times[i+1]:
+                        print(f"    Out-of-order idx={i}: {times[i]} >= {times[i+1]}")
+                        break
+
+        except Exception as e:
+            tb.print_exc()
+            report["orders"][order] = {"error": str(e)}
+            print(f"  [ORDER={order}] EXCEPTION: {e}")
+
+    print(f"{'='*60}\n")
+    return jsonify(report)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Entry point
 # ─────────────────────────────────────────────────────────────────────────────

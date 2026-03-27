@@ -1354,7 +1354,7 @@ function renderZones(zones, candles, aLI) {
 
       const inv  = z.status === 'invalidated';
       const isA  = aLI && Math.abs(z.time_start - aLI) <= 86400;
-      const col  = inv ? '#666' : (CL[z.zone_type] || '#22c55e');
+      const col  = inv ? '#666666' : (CL[z.zone_type] || '#22c55e');
       const lw   = isA ? 2 : 1;
       const ls   = inv ? 2 : 0;
       const ca   = inv ? '55' : isA ? 'ff' : 'bb';
@@ -1586,5 +1586,7 @@ updatePivotOrderButtons();
 // Restore previous session
 restoreState();
 </script>
+<script src="/chart_fixes.js"></script>
+<script src="/chart_debug.js"></script>
 </body>
 </html>
