@@ -4,503 +4,493 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Scanner – QuantScanner</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/shared.css">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
-/* ════════════════════════════════════════════════
-   DESIGN TOKENS — exactly matching shared.css
-   --bg       #0d0f12   (body)
-   --surface  #161a20   (panels/nav)
-   --s2       #1e2530   (cards)
-   --s3       #252d3a   (hover/active)
-   --border   #2a3040
-   --text     #e2e8f0
-   --muted    #8892a0
-   --accent   #3b82f6
-   --green    #22c55e
-   --red      #ef4444
-   --amber    #f59e0b
-   --purple   #a78bfa
-════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════
+   SCANNER-SPECIFIC STYLES
+   Uses same tokens as shared.css / qs-design.css
+   --bg, --surface, --s2, --s3, --border, --text,
+   --muted, --accent, --green, --red, --amber, --purple
+══════════════════════════════════════════════════ */
+
 :root {
-  --bg:      #0d0f12;
-  --surf:    #161a20;
-  --s2:      #1e2530;
-  --s3:      #252d3a;
-  --s4:      #2d3748;
-  --border:  #2a3040;
+  /* Extra tokens used by scanner that shared.css doesn't define */
   --border2: #3a4555;
-  --text:    #e2e8f0;
-  --muted:   #8892a0;
   --muted2:  #5a6470;
-  --accent:  #3b82f6;
   --accentd: #2563eb;
-  --green:   #22c55e;
   --greend:  #16a34a;
-  --red:     #ef4444;
-  --amber:   #f59e0b;
-  --purple:  #a78bfa;
   --teal:    #2dd4bf;
   --nav-h:   50px;
-  --sb-w:    296px;
-  --dw-w:    380px;
-  --mono:    'IBM Plex Mono', monospace;
-  --sans:    'IBM Plex Sans', system-ui, sans-serif;
-  --r:       6px;
-  --r2:      8px;
+  --sb-w:    300px;
+  --mono:    'IBM Plex Mono', ui-monospace, monospace;
 }
 
-*,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }
-html,body { height:100vh; overflow:hidden; }
-body {
-  font-family: var(--sans);
-  background: var(--bg);
-  color: var(--text);
-  font-size: 13px;
-  line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
-}
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
-/* ════════════════════════════════════════════════
-   NAV  (identical to shared.css #qs-nav)
-════════════════════════════════════════════════ */
-#nav {
+html, body { height: 100vh; overflow: hidden; }
+
+/* ── Override shared body to match scanner needs ── */
+body { overflow: hidden; }
+
+/* ════════ NAV (matches shared.css #qs-nav exactly) ════════ */
+#qs-nav {
   height: var(--nav-h);
-  background: var(--surf);
+  background: var(--surface);
   border-bottom: 1px solid var(--border);
-  position: fixed; top:0; left:0; right:0; z-index:500;
+  position: fixed; top: 0; left: 0; right: 0; z-index: 500;
   display: flex; align-items: center;
   padding: 0 20px; gap: 4px;
+  flex-shrink: 0;
 }
 .nav-logo {
-  display:flex; align-items:center; gap:8px;
-  font-size:15px; font-weight:600; color:#fff;
-  text-decoration:none; margin-right:12px; letter-spacing:.3px;
+  display: flex; align-items: center; gap: 8px;
+  font-size: 15px; font-weight: 700; color: #fff;
+  text-decoration: none; margin-right: 12px; letter-spacing: .3px;
 }
 .nav-logo-icon {
-  width:28px; height:28px; border-radius:7px;
-  background:linear-gradient(135deg,var(--accent),var(--teal));
-  display:flex; align-items:center; justify-content:center; font-size:14px;
+  width: 28px; height: 28px; border-radius: 7px;
+  background: linear-gradient(135deg, var(--accent), var(--teal));
+  display: flex; align-items: center; justify-content: center; font-size: 14px;
 }
-.nav-link {
-  padding:5px 13px; border-radius:var(--r); font-size:13px;
-  font-weight:400; color:var(--muted); text-decoration:none; transition:all .12s;
+#qs-nav a.qs-nav-link {
+  padding: 5px 13px; border-radius: var(--r);
+  font-size: 13px; font-weight: 400; color: var(--muted);
+  text-decoration: none; transition: all .12s;
 }
-.nav-link:hover { background:var(--s2); color:var(--text); }
-.nav-link.active { background:var(--s2); color:var(--text); font-weight:500; }
-.nav-spacer { flex:1; }
+#qs-nav a.qs-nav-link:hover  { background: var(--s2); color: var(--text); }
+#qs-nav a.qs-nav-link.active { background: var(--s2); color: var(--text); font-weight: 500; }
+.nav-spacer { flex: 1; }
 .nav-dot-wrap {
-  display:flex; align-items:center; gap:5px;
-  font-size:11px; color:var(--muted2); font-family:var(--mono); margin-right:10px;
+  display: flex; align-items: center; gap: 5px;
+  font-size: 11px; color: var(--muted2); font-family: var(--mono); margin-right: 10px;
 }
 .nav-live {
-  width:6px; height:6px; border-radius:50%;
-  background:var(--green); animation:pulse 2s ease infinite;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--green); animation: nav-pulse 2s ease infinite;
 }
-@keyframes pulse { 0%,100%{opacity:1}60%{opacity:.35} }
+@keyframes nav-pulse { 0%,100%{opacity:1} 60%{opacity:.35} }
 .nav-badge {
-  display:none; padding:3px 10px; border-radius:99px;
-  font-size:11px; font-family:var(--mono); font-weight:600;
-  background:var(--s2); border:1px solid var(--border2); color:var(--accent);
+  display: none; padding: 3px 10px; border-radius: 99px;
+  font-size: 11px; font-family: var(--mono); font-weight: 600;
+  background: var(--s2); border: 1px solid var(--border2); color: var(--accent);
 }
 
-/* ════════════════════════════════════════════════
-   APP LAYOUT
-════════════════════════════════════════════════ */
+/* ════════ APP LAYOUT ════════ */
 #app {
-  display:flex;
-  height:calc(100vh - var(--nav-h));
-  margin-top:var(--nav-h);
-  overflow:hidden;
+  display: flex;
+  height: calc(100vh - var(--nav-h));
+  margin-top: var(--nav-h);
+  overflow: hidden;
 }
 
-/* ════════════════════════════════════════════════
-   SIDEBAR — collapsible
-════════════════════════════════════════════════ */
+/* ════════ SIDEBAR ════════ */
 #sidebar {
   width: var(--sb-w);
   min-width: var(--sb-w);
   height: 100%;
   display: flex; flex-direction: column;
-  background: var(--surf);
+  background: var(--surface);
   border-right: 1px solid var(--border);
   flex-shrink: 0;
   transition: width .28s ease, min-width .28s ease;
   overflow: hidden;
-  position: relative;
-  z-index: 10;
+  position: relative; z-index: 10;
 }
-#sidebar.col {
-  width: 44px;
-  min-width: 44px;
-}
-/* Hide scroll content when collapsed */
-#sidebar.col #sb-scroll { opacity:0; pointer-events:none; }
-/* Flip arrow icon */
+#sidebar.col { width: 44px; min-width: 44px; }
+#sidebar.col #sb-scroll { opacity: 0; pointer-events: none; }
 #sidebar.col .sb-arr { transform: rotate(180deg); }
 
 .sb-header {
-  height:48px; flex-shrink:0;
-  display:flex; align-items:center; justify-content:space-between;
-  padding:0 12px; border-bottom:1px solid var(--border);
+  height: 48px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 12px; border-bottom: 1px solid var(--border);
 }
 .sb-title {
-  font-size:10px; font-weight:600; font-family:var(--mono);
-  color:var(--muted2); text-transform:uppercase; letter-spacing:1px;
-  white-space:nowrap;
+  font-size: 10px; font-weight: 600; font-family: var(--mono);
+  color: var(--muted2); text-transform: uppercase; letter-spacing: 1px;
+  white-space: nowrap;
 }
-.sb-tog {
-  width:26px; height:26px; border-radius:var(--r);
-  background:transparent; border:1px solid var(--border);
-  color:var(--muted); cursor:pointer; flex-shrink:0;
-  display:flex; align-items:center; justify-content:center;
-  font-size:11px; transition:all .12s;
-}
-.sb-tog:hover { background:var(--s2); color:var(--text); border-color:var(--border2); }
-.sb-arr { display:inline-block; transition:transform .28s ease; }
+#sidebar.col .sb-title { display: none; }
 
-/* collapsed: show only the toggle in center */
-#sidebar.col .sb-title { display:none; }
+.sb-tog {
+  width: 26px; height: 26px; border-radius: var(--r);
+  background: transparent; border: 1px solid var(--border);
+  color: var(--muted); cursor: pointer; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; transition: all .12s;
+}
+.sb-tog:hover { background: var(--s2); color: var(--text); border-color: var(--border2); }
+.sb-arr { display: inline-block; transition: transform .28s ease; }
 
 #sb-scroll {
-  flex:1; overflow-y:auto; overflow-x:hidden;
-  padding:12px 12px 20px;
-  display:flex; flex-direction:column; gap:14px;
-  transition:opacity .18s;
+  flex: 1; overflow-y: auto; overflow-x: hidden;
+  padding: 12px 12px 20px;
+  display: flex; flex-direction: column; gap: 14px;
+  transition: opacity .18s;
 }
-#sb-scroll::-webkit-scrollbar { width:3px; }
-#sb-scroll::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+#sb-scroll::-webkit-scrollbar { width: 3px; }
+#sb-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
 /* Section label */
 .slbl {
-  font-size:9px; font-weight:700; font-family:var(--mono);
-  color:var(--muted2); text-transform:uppercase; letter-spacing:1px;
-  margin-bottom:6px; display:flex; align-items:center; gap:6px;
+  font-size: 9px; font-weight: 700; font-family: var(--mono);
+  color: var(--muted2); text-transform: uppercase; letter-spacing: 1px;
+  margin-bottom: 6px; display: flex; align-items: center; gap: 6px;
 }
-.slbl::after { content:''; flex:1; height:1px; background:var(--border); }
+.slbl::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 
-/* Form controls — same as shared.css .ctrl */
+/* Form controls (same as shared.css .ctrl) */
 .ctrl {
-  width:100%; background:var(--s2); color:var(--text);
-  border:1px solid var(--border); border-radius:var(--r);
-  padding:6px 10px; font-size:12px; font-family:var(--sans);
-  outline:none; transition:border-color .12s; appearance:none;
+  width: 100%; background: var(--s2); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--r);
+  padding: 6px 10px; font-size: 12px; font-family: inherit;
+  outline: none; transition: border-color .12s; appearance: none;
 }
-.ctrl:focus { border-color:var(--accent); }
+.ctrl:focus { border-color: var(--accent); }
 select.ctrl {
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%235a6470'/%3E%3C/svg%3E");
-  background-repeat:no-repeat; background-position:right 10px center;
-  padding-right:28px; cursor:pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%235a6470'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center;
+  padding-right: 28px; cursor: pointer;
 }
 .ctrl-lbl {
-  font-size:10px; color:var(--muted); font-family:var(--mono);
-  margin-bottom:3px; display:block;
+  font-size: 10px; color: var(--muted); font-family: var(--mono);
+  margin-bottom: 3px; display: block;
 }
 
-/* Segment toggle (buy/sell) */
-.seg { display:flex; background:var(--s2); border:1px solid var(--border); border-radius:var(--r2); padding:2px; gap:2px; }
+/* Direction toggle */
+.seg { display: flex; background: var(--s2); border: 1px solid var(--border); border-radius: var(--r2); padding: 2px; gap: 2px; }
 .seg-btn {
-  flex:1; padding:5px; border-radius:5px; font-size:12px; font-weight:500;
-  border:none; background:transparent; color:var(--muted);
-  cursor:pointer; transition:all .15s; font-family:var(--sans);
+  flex: 1; padding: 5px; border-radius: 5px; font-size: 12px; font-weight: 500;
+  border: none; background: transparent; color: var(--muted);
+  cursor: pointer; transition: all .15s;
 }
-.seg-btn.buy  { background:#14532d; color:#86efac; }
-.seg-btn.sell { background:#7f1d1d; color:#fca5a5; }
+.seg-btn.buy  { background: #14532d; color: #86efac; }
+.seg-btn.sell { background: #7f1d1d; color: #fca5a5; }
 
 /* TF chips */
-.tfc-row { display:flex; gap:4px; flex-wrap:wrap; }
+.tfc-row { display: flex; gap: 4px; flex-wrap: wrap; }
 .tfc {
-  padding:3px 10px; border-radius:99px; font-size:11px;
-  font-family:var(--mono); font-weight:500;
-  border:1px solid var(--border); background:transparent;
-  color:var(--muted); cursor:pointer; transition:all .12s;
+  padding: 3px 10px; border-radius: 99px; font-size: 11px;
+  font-family: var(--mono); font-weight: 500;
+  border: 1px solid var(--border); background: transparent;
+  color: var(--muted); cursor: pointer; transition: all .12s;
 }
-.tfc:hover { border-color:var(--border2); color:var(--text); }
-.tfc.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+.tfc:hover { border-color: var(--border2); color: var(--text); }
+.tfc.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 
-/* Stepper row */
-.srow { display:flex; gap:6px; }
-.sg { flex:1; display:flex; flex-direction:column; gap:3px; }
+/* Stepper */
+.srow { display: flex; gap: 6px; }
+.sg { flex: 1; display: flex; flex-direction: column; gap: 3px; }
 .stpw {
-  display:flex; background:var(--s2); border:1px solid var(--border);
-  border-radius:var(--r); overflow:hidden; align-items:center;
+  display: flex; background: var(--s2); border: 1px solid var(--border);
+  border-radius: var(--r); overflow: hidden; align-items: center;
 }
 .stpw input {
-  flex:1; background:transparent; border:none; outline:none;
-  color:var(--text); font-family:var(--mono); font-size:12px;
-  padding:6px 4px; text-align:center;
+  flex: 1; background: transparent; border: none; outline: none;
+  color: var(--text); font-family: var(--mono); font-size: 12px;
+  padding: 6px 4px; text-align: center;
 }
 .stpb {
-  width:26px; background:transparent; border:none; color:var(--muted);
-  cursor:pointer; font-size:14px; padding:0; height:30px;
-  display:flex; align-items:center; justify-content:center; transition:all .12s;
+  width: 26px; background: transparent; border: none; color: var(--muted);
+  cursor: pointer; font-size: 14px; padding: 0; height: 30px;
+  display: flex; align-items: center; justify-content: center; transition: all .12s;
 }
-.stpb:hover { background:var(--s3); color:var(--text); }
+.stpb:hover { background: var(--s3); color: var(--text); }
 
 /* Trend dropdown */
-.tdw { position:relative; }
+.tdw { position: relative; }
 .trig {
-  width:100%; background:var(--s2); color:var(--text);
-  border:1px solid var(--border); border-radius:var(--r);
-  padding:6px 10px; font-size:12px; font-family:var(--sans);
-  text-align:left; cursor:pointer;
-  display:flex; justify-content:space-between; align-items:center;
-  transition:border-color .12s;
+  width: 100%; background: var(--s2); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--r);
+  padding: 6px 10px; font-size: 12px; font-family: inherit;
+  text-align: left; cursor: pointer;
+  display: flex; justify-content: space-between; align-items: center;
+  transition: border-color .12s;
 }
-.trig:hover { border-color:var(--border2); }
-.tarr { font-size:8px; color:var(--muted); transition:transform .18s; }
-.trig.op .tarr { transform:rotate(180deg); }
+.trig:hover { border-color: var(--border2); }
+.tarr { font-size: 8px; color: var(--muted); transition: transform .18s; }
+.trig.op .tarr { transform: rotate(180deg); }
 .tdd {
-  position:absolute; top:calc(100% + 4px); left:0; right:0; z-index:300;
-  background:var(--s2); border:1px solid var(--border2); border-radius:var(--r2);
-  max-height:240px; overflow-y:auto; display:none;
-  box-shadow:0 12px 40px rgba(0,0,0,.5);
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 300;
+  background: var(--s2); border: 1px solid var(--border2); border-radius: var(--r2);
+  max-height: 240px; overflow-y: auto; display: none;
+  box-shadow: 0 12px 40px rgba(0,0,0,.5);
 }
-.tdd.op { display:block; }
-.tdg { padding:6px 12px 2px; font-size:9px; font-weight:600; font-family:var(--mono); color:var(--muted2); text-transform:uppercase; letter-spacing:1px; }
-.tdo { display:flex; align-items:center; gap:8px; padding:6px 12px; cursor:pointer; font-size:12px; transition:background .1s; }
-.tdo:hover { background:var(--s3); }
-.tdo input[type=checkbox] { accent-color:var(--accent); width:13px; height:13px; flex-shrink:0; }
+.tdd.op { display: block; }
+.tdg { padding: 6px 12px 2px; font-size: 9px; font-weight: 600; font-family: var(--mono); color: var(--muted2); text-transform: uppercase; letter-spacing: 1px; }
+.tdo { display: flex; align-items: center; gap: 8px; padding: 6px 12px; cursor: pointer; font-size: 12px; transition: background .1s; }
+.tdo:hover { background: var(--s3); }
+.tdo input[type=checkbox] { accent-color: var(--accent); width: 13px; height: 13px; flex-shrink: 0; }
 
-/* MO card */
-.moc { background:var(--s2); border:1px solid var(--border); border-radius:var(--r2); overflow:hidden; }
-.moh { padding:8px 12px; display:flex; align-items:center; gap:8px; border-bottom:1px solid var(--border); }
-.motog { position:relative; width:32px; height:17px; flex-shrink:0; }
-.motog input { opacity:0; width:0; height:0; }
-.mos { position:absolute; inset:0; background:var(--s3); border-radius:99px; cursor:pointer; transition:background .18s; }
-.mos::after { content:''; position:absolute; width:11px; height:11px; border-radius:50%; background:var(--muted); top:3px; left:3px; transition:all .18s; }
-.motog input:checked + .mos { background:var(--accentd); }
-.motog input:checked + .mos::after { background:#fff; transform:translateX(15px); }
-.mobl { font-size:12px; font-weight:500; color:var(--text); flex:1; }
-.mob { padding:10px 12px; display:flex; flex-direction:column; gap:8px; }
-.mob.hid { display:none; }
-.molv { display:grid; grid-template-columns:40px 1fr 1fr; gap:6px; align-items:end; }
-.molk { font-size:9px; font-weight:700; font-family:var(--mono); padding:3px 0; text-align:center; letter-spacing:.5px; }
-.moH { color:#ddd6fe; border-bottom:2px solid #7c3aed; }
-.moM { color:#93c5fd; border-bottom:2px solid #1d4ed8; }
-.moL { color:#86efac; border-bottom:2px solid #16a34a; }
+/* Multi-Order card */
+.moc { background: var(--s2); border: 1px solid var(--border); border-radius: var(--r2); overflow: hidden; }
+.moh { padding: 8px 12px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--border); }
+.motog { position: relative; width: 32px; height: 17px; flex-shrink: 0; }
+.motog input { opacity: 0; width: 0; height: 0; }
+.mos { position: absolute; inset: 0; background: var(--s3); border-radius: 99px; cursor: pointer; transition: background .18s; }
+.mos::after { content: ''; position: absolute; width: 11px; height: 11px; border-radius: 50%; background: var(--muted); top: 3px; left: 3px; transition: all .18s; }
+.motog input:checked + .mos { background: var(--accentd); }
+.motog input:checked + .mos::after { background: #fff; transform: translateX(15px); }
+.mobl { font-size: 12px; font-weight: 500; color: var(--text); flex: 1; }
+.mob { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.mob.hid { display: none; }
+.molv { display: grid; grid-template-columns: 40px 1fr 1fr; gap: 6px; align-items: end; }
+.molk { font-size: 9px; font-weight: 700; font-family: var(--mono); padding: 3px 0; text-align: center; letter-spacing: .5px; }
+.moH { color: #ddd6fe; border-bottom: 2px solid #7c3aed; }
+.moM { color: #93c5fd; border-bottom: 2px solid #1d4ed8; }
+.moL { color: #86efac; border-bottom: 2px solid #16a34a; }
 
-/* Scan button — same style as btn-primary in shared.css */
+/* Scan button */
 .scan-btn {
-  width:100%; padding:9px; border-radius:var(--r);
-  background:var(--accent); color:#fff; border:none;
-  font-size:13px; font-weight:600; font-family:var(--sans);
-  cursor:pointer; transition:all .15s; letter-spacing:.2px;
+  width: 100%; padding: 9px; border-radius: var(--r);
+  background: var(--accent); color: #fff; border: none;
+  font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: all .15s; letter-spacing: .2px;
 }
-.scan-btn:hover:not(:disabled) { background:var(--accentd); }
-.scan-btn:disabled { opacity:.45; cursor:not-allowed; }
+.scan-btn:hover:not(:disabled) { background: var(--accentd); }
+.scan-btn:disabled { opacity: .45; cursor: not-allowed; }
 
-/* ════════════════════════════════════════════════
-   RESULTS PANEL
-════════════════════════════════════════════════ */
+/* ════════ RESULTS PANEL ════════ */
 #rp {
-  width:320px; min-width:260px;
-  height:100%; display:flex; flex-direction:column;
-  background:var(--surf); border-right:1px solid var(--border);
-  flex-shrink:0;
+  width: 310px; min-width: 260px;
+  height: 100%; display: flex; flex-direction: column;
+  background: var(--surface); border-right: 1px solid var(--border);
+  flex-shrink: 0;
 }
 .rph {
-  height:44px; flex-shrink:0;
-  display:flex; align-items:center; padding:0 14px; gap:8px;
-  border-bottom:1px solid var(--border);
+  height: 44px; flex-shrink: 0;
+  display: flex; align-items: center; padding: 0 14px; gap: 8px;
+  border-bottom: 1px solid var(--border);
 }
-.rptit { font-size:10px; font-weight:600; font-family:var(--mono); color:var(--muted2); text-transform:uppercase; letter-spacing:1px; }
+.rptit {
+  font-size: 10px; font-weight: 600; font-family: var(--mono);
+  color: var(--muted2); text-transform: uppercase; letter-spacing: 1px;
+}
 .rpcnt {
-  font-size:10px; font-family:var(--mono);
-  padding:2px 8px; border-radius:99px;
-  background:var(--s2); border:1px solid var(--border); color:var(--muted);
+  font-size: 10px; font-family: var(--mono);
+  padding: 2px 8px; border-radius: 99px;
+  background: var(--s2); border: 1px solid var(--border); color: var(--muted);
 }
-.rpsrt { margin-left:auto; display:flex; gap:3px; }
+.rpsrt { margin-left: auto; display: flex; gap: 3px; }
 .srtb {
-  width:26px; height:26px; border-radius:var(--r);
-  background:transparent; border:1px solid var(--border);
-  color:var(--muted); cursor:pointer; font-size:11px;
-  display:flex; align-items:center; justify-content:center; transition:all .12s;
+  width: 26px; height: 26px; border-radius: var(--r);
+  background: transparent; border: 1px solid var(--border);
+  color: var(--muted); cursor: pointer; font-size: 11px;
+  display: flex; align-items: center; justify-content: center; transition: all .12s;
 }
-.srtb:hover,.srtb.on { background:var(--s2); border-color:var(--border2); color:var(--text); }
+.srtb:hover, .srtb.on { background: var(--s2); border-color: var(--border2); color: var(--text); }
 
 .rpcols {
-  display:grid; grid-template-columns:1fr 70px 64px;
-  padding:5px 14px; border-bottom:1px solid var(--border);
-  flex-shrink:0; background:var(--bg);
+  display: grid; grid-template-columns: 1fr 70px 64px;
+  padding: 5px 14px; border-bottom: 1px solid var(--border);
+  flex-shrink: 0; background: var(--bg);
 }
-.rpcol { font-size:9px; font-weight:600; font-family:var(--mono); color:var(--muted2); text-transform:uppercase; letter-spacing:.8px; }
-.rpcol:not(:first-child) { text-align:right; }
+.rpcol {
+  font-size: 9px; font-weight: 600; font-family: var(--mono);
+  color: var(--muted2); text-transform: uppercase; letter-spacing: .8px;
+}
+.rpcol:not(:first-child) { text-align: right; }
 
-#rlist { flex:1; overflow-y:auto; overflow-x:hidden; }
-#rlist::-webkit-scrollbar { width:3px; }
-#rlist::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+#rlist { flex: 1; overflow-y: auto; overflow-x: hidden; }
+#rlist::-webkit-scrollbar { width: 3px; }
+#rlist::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
-/* Stock row — NO css animation here (that was the flash bug) */
+/* Stock row */
 .sr {
-  display:grid; grid-template-columns:1fr 70px 64px;
-  padding:9px 14px; border-bottom:1px solid var(--border);
-  cursor:pointer; transition:background .1s; position:relative; align-items:center;
+  display: grid; grid-template-columns: 1fr 70px 64px;
+  padding: 9px 14px; border-bottom: 1px solid var(--border);
+  cursor: pointer; transition: background .1s; position: relative; align-items: center;
 }
-.sr:hover { background:var(--s2); }
-.sr.on { background:var(--s3); border-left:2px solid var(--accent); padding-left:12px; }
-.srn { font-size:13px; font-weight:600; font-family:var(--mono); color:var(--text); }
-.srm { font-size:10px; color:var(--muted); margin-top:2px; display:flex; align-items:center; gap:5px; }
-.srp { font-size:12px; font-weight:600; font-family:var(--mono); text-align:right; }
-.srz { text-align:right; display:flex; flex-direction:column; align-items:flex-end; gap:2px; }
-.sra { font-size:10px; font-family:var(--mono); color:var(--green); }
-.srt { font-size:8px; font-weight:700; font-family:var(--mono); padding:1px 5px; border-radius:3px; letter-spacing:.5px; }
+.sr:hover { background: var(--s2); }
+.sr.on { background: var(--s3); border-left: 2px solid var(--accent); padding-left: 12px; }
+.srn { font-size: 13px; font-weight: 600; font-family: var(--mono); color: var(--text); }
+.srm { font-size: 10px; color: var(--muted); margin-top: 2px; display: flex; align-items: center; gap: 5px; }
+.srp { font-size: 12px; font-weight: 600; font-family: var(--mono); text-align: right; }
+.srz { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.sra { font-size: 10px; font-family: var(--mono); color: var(--green); }
+.srt { font-size: 8px; font-weight: 700; font-family: var(--mono); padding: 1px 5px; border-radius: 3px; letter-spacing: .5px; }
 
-/* ⓘ button */
+/* ⓘ info button */
 .ibtn {
-  position:absolute; right:10px; top:50%; transform:translateY(-50%);
-  width:20px; height:20px; border-radius:50%;
-  background:transparent; border:1px solid var(--border);
-  color:var(--muted); font-size:10px; font-family:var(--mono); font-weight:700;
-  cursor:pointer; display:flex; align-items:center; justify-content:center;
-  transition:all .12s; opacity:0; pointer-events:none;
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  width: 20px; height: 20px; border-radius: 50%;
+  background: transparent; border: 1px solid var(--border);
+  color: var(--muted); font-size: 10px; font-family: var(--mono); font-weight: 700;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: all .12s; opacity: 0; pointer-events: none;
 }
-.sr:hover .ibtn, .sr.on .ibtn { opacity:1; pointer-events:all; }
-.ibtn:hover { background:var(--s3); border-color:var(--border2); color:var(--accent); }
+.sr:hover .ibtn, .sr.on .ibtn { opacity: 1; pointer-events: all; }
+.ibtn:hover { background: var(--s3); border-color: var(--border2); color: var(--accent); }
 
-/* Trend badges — identical to shared.css */
-.tbadge { font-size:9px; font-weight:600; font-family:var(--mono); padding:2px 6px; border-radius:4px; white-space:nowrap; letter-spacing:.2px; display:inline-block; }
-.t-up { background:#14532d; color:#86efac; }
-.t-dn { background:#7f1d1d; color:#fca5a5; }
-.t-co { background:#292524; color:#a8a29e; }
+/* Trend badges */
+.tbadge { font-size: 9px; font-weight: 600; font-family: var(--mono); padding: 2px 6px; border-radius: 4px; white-space: nowrap; letter-spacing: .2px; display: inline-block; }
+.t-up { background: #14532d; color: #86efac; }
+.t-dn { background: #7f1d1d; color: #fca5a5; }
+.t-co { background: #292524; color: #a8a29e; }
 
 /* Empty / shimmer */
-.empty-st { display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; gap:10px; color:var(--muted); }
-.e-ico { font-size:28px; opacity:.5; }
-.e-txt { font-size:12px; }
-.e-sub { font-size:11px; color:var(--muted2); }
-.shrow { padding:9px 14px; border-bottom:1px solid var(--border); display:flex; flex-direction:column; gap:6px; }
-.sh { border-radius:4px; background:linear-gradient(90deg,var(--s2) 25%,var(--s3) 50%,var(--s2) 75%); background-size:200% 100%; animation:sh 1.4s infinite; }
-@keyframes sh { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
+.empty-st { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 10px; color: var(--muted); }
+.e-ico { font-size: 28px; opacity: .5; }
+.e-txt { font-size: 12px; }
+.e-sub { font-size: 11px; color: var(--muted2); }
+.shrow { padding: 9px 14px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
+.sh { border-radius: 4px; background: linear-gradient(90deg, var(--s2) 25%, var(--s3) 50%, var(--s2) 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
+@keyframes shimmer { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
 
-/* ════════════════════════════════════════════════
-   CHART PANEL
-════════════════════════════════════════════════ */
-#cp { flex:1; min-width:0; height:100%; display:flex; flex-direction:column; overflow:hidden; }
+/* ════════ CHART PANEL ════════ */
+#cp { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+
 .cph {
-  height:48px; flex-shrink:0;
-  display:flex; align-items:center; padding:0 18px; gap:10px;
-  background:var(--surf); border-bottom:1px solid var(--border);
+  height: 48px; flex-shrink: 0;
+  display: flex; align-items: center; padding: 0 18px; gap: 10px;
+  background: var(--surface); border-bottom: 1px solid var(--border);
 }
-.cptk { font-size:17px; font-weight:700; font-family:var(--mono); letter-spacing:.3px; }
-.cppr { font-size:14px; font-weight:600; font-family:var(--mono); color:var(--green); }
-.cpleg {
-  display:flex; gap:14px; padding:5px 18px; flex-shrink:0;
-  border-bottom:1px solid var(--border); background:var(--s2); overflow-x:auto;
-}
-.cpleg::-webkit-scrollbar { height:2px; }
-.li { display:flex; align-items:center; gap:4px; font-size:10px; color:var(--muted); white-space:nowrap; }
-.ld { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
-.lr { width:12px; height:7px; border-radius:2px; flex-shrink:0; }
+.cptk { font-size: 17px; font-weight: 700; font-family: var(--mono); letter-spacing: .3px; }
+.cppr { font-size: 14px; font-weight: 600; font-family: var(--mono); color: var(--green); }
 
-#cw { flex:1; position:relative; min-height:0; }
-#cload {
-  position:absolute; inset:0; z-index:50;
-  background:rgba(13,15,18,.75);
-  display:none; align-items:center; justify-content:center;
+/* ── Pivot Order Controls ── */
+.pivot-ctrl {
+  display: flex; align-items: center; gap: 6px; margin-left: auto;
 }
-#cload.show { display:flex; }
-.cspn { width:24px; height:24px; border-radius:50%; border:2px solid var(--border); border-top-color:var(--accent); animation:spin .7s linear infinite; }
+.pivot-ctrl-lbl {
+  font-size: 10px; color: var(--muted); font-family: var(--mono);
+  white-space: nowrap;
+}
+.pivot-order-group { display: flex; gap: 3px; }
+.pob {
+  /* pivot order button */
+  display: flex; align-items: center; gap: 4px;
+  padding: 3px 9px; border-radius: 5px; font-size: 11px; font-family: var(--mono);
+  border: 1px solid var(--border); background: transparent;
+  color: var(--muted); cursor: pointer; transition: all .12s;
+  white-space: nowrap;
+}
+.pob:hover { border-color: var(--border2); color: var(--text); }
+.pob.on { background: var(--s3); border-color: var(--border2); color: var(--text); }
+/* Color-coded for H/M/L */
+.pob.moH.on { border-color: #7c3aed; color: #ddd6fe; background: rgba(124,58,237,.15); }
+.pob.moM.on { border-color: #1d4ed8; color: #93c5fd; background: rgba(29,78,216,.15); }
+.pob.moL.on { border-color: #16a34a; color: #86efac; background: rgba(22,163,74,.15); }
+.pob .pob-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+/* TF group */
+.tfg { display: flex; gap: 2px; }
+.tfb {
+  padding: 4px 10px; border-radius: var(--r); border: 1px solid var(--border);
+  background: transparent; color: var(--muted); font-size: 11px; font-family: var(--mono);
+  cursor: pointer; transition: all .12s;
+}
+.tfb:hover { color: var(--text); border-color: var(--border2); }
+.tfb.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.cpleg {
+  display: flex; gap: 14px; padding: 5px 18px; flex-shrink: 0;
+  border-bottom: 1px solid var(--border); background: var(--s2); overflow-x: auto;
+}
+.cpleg::-webkit-scrollbar { height: 2px; }
+.li { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--muted); white-space: nowrap; }
+.ld { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.lr { width: 12px; height: 7px; border-radius: 2px; flex-shrink: 0; }
+
+#cw { flex: 1; position: relative; min-height: 0; }
+#cload {
+  position: absolute; inset: 0; z-index: 50;
+  background: rgba(13,15,18,.75);
+  display: none; align-items: center; justify-content: center;
+}
+#cload.show { display: flex; }
+.cspn {
+  width: 24px; height: 24px; border-radius: 50%;
+  border: 2px solid var(--border); border-top-color: var(--accent);
+  animation: spin .7s linear infinite;
+}
 @keyframes spin { to{transform:rotate(360deg)} }
 
-.cpmet { display:flex; flex-shrink:0; border-top:1px solid var(--border); background:var(--surf); overflow-x:auto; }
-.cpmet::-webkit-scrollbar { height:2px; }
-.met { flex:1; min-width:86px; padding:7px 14px; border-right:1px solid var(--border); }
-.met:last-child { border:none; }
-.ml { font-size:8px; font-family:var(--mono); color:var(--muted); text-transform:uppercase; letter-spacing:.8px; }
-.mv { font-size:12px; font-weight:600; font-family:var(--mono); margin-top:2px; }
+/* Bottom metric bar */
+.cpmet { display: flex; flex-shrink: 0; border-top: 1px solid var(--border); background: var(--surface); overflow-x: auto; }
+.cpmet::-webkit-scrollbar { height: 2px; }
+.met { flex: 1; min-width: 86px; padding: 7px 14px; border-right: 1px solid var(--border); }
+.met:last-child { border: none; }
+.ml { font-size: 8px; font-family: var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .8px; }
+.mv { font-size: 12px; font-weight: 600; font-family: var(--mono); margin-top: 2px; }
 
-.tfg { display:flex; gap:2px; margin-left:auto; flex-shrink:0; }
-.tfb {
-  padding:4px 10px; border-radius:var(--r); border:1px solid var(--border);
-  background:transparent; color:var(--muted); font-size:11px; font-family:var(--mono);
-  cursor:pointer; transition:all .12s;
-}
-.tfb:hover { color:var(--text); border-color:var(--border2); }
-.tfb.on { background:var(--accent); border-color:var(--accent); color:#fff; }
-
-/* ════════════════════════════════════════════════
-   DRAWER
-════════════════════════════════════════════════ */
-#dov { position:fixed; inset:0; z-index:600; background:rgba(0,0,0,.45); display:none; }
-#dov.show { display:block; }
+/* ════════ DRAWER ════════ */
+#dov { position: fixed; inset: 0; z-index: 600; background: rgba(0,0,0,.45); display: none; }
+#dov.show { display: block; }
 #dw {
-  position:fixed; right:0; top:var(--nav-h); bottom:0; z-index:700;
-  width:var(--dw-w);
-  background:var(--surf); border-left:1px solid var(--border2);
-  box-shadow:-16px 0 48px rgba(0,0,0,.5);
-  display:flex; flex-direction:column;
-  transform:translateX(100%);
-  transition:transform .28s cubic-bezier(.4,0,.2,1);
+  position: fixed; right: 0; top: var(--nav-h); bottom: 0; z-index: 700;
+  width: 380px;
+  background: var(--surface); border-left: 1px solid var(--border2);
+  box-shadow: -16px 0 48px rgba(0,0,0,.5);
+  display: flex; flex-direction: column;
+  transform: translateX(100%);
+  transition: transform .28s cubic-bezier(.4,0,.2,1);
 }
-#dw.open { transform:translateX(0); }
+#dw.open { transform: translateX(0); }
 .dwh {
-  padding:14px 16px; border-bottom:1px solid var(--border);
-  display:flex; align-items:flex-start; gap:10px; flex-shrink:0;
+  padding: 14px 16px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: flex-start; gap: 10px; flex-shrink: 0;
 }
-.dwtk { font-size:16px; font-weight:700; font-family:var(--mono); }
-.dwsb { font-size:10px; color:var(--muted); margin-top:3px; }
-.dwpr { font-size:13px; font-family:var(--mono); color:var(--green); margin-left:auto; padding-top:2px; }
+.dwtk { font-size: 16px; font-weight: 700; font-family: var(--mono); }
+.dwsb { font-size: 10px; color: var(--muted); margin-top: 3px; }
+.dwpr { font-size: 13px; font-family: var(--mono); color: var(--green); margin-left: auto; padding-top: 2px; }
 .dwcl {
-  width:26px; height:26px; border-radius:var(--r); flex-shrink:0;
-  background:var(--s2); border:1px solid var(--border);
-  color:var(--muted); cursor:pointer; font-size:14px;
-  display:flex; align-items:center; justify-content:center; transition:all .12s;
+  width: 26px; height: 26px; border-radius: var(--r); flex-shrink: 0;
+  background: var(--s2); border: 1px solid var(--border);
+  color: var(--muted); cursor: pointer; font-size: 14px;
+  display: flex; align-items: center; justify-content: center; transition: all .12s;
 }
-.dwcl:hover { background:var(--s3); color:var(--text); }
+.dwcl:hover { background: var(--s3); color: var(--text); }
 
-#dws { flex:1; overflow-y:auto; padding:14px 16px; display:flex; flex-direction:column; gap:16px; }
-#dws::-webkit-scrollbar { width:3px; }
-#dws::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+#dws { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 16px; }
+#dws::-webkit-scrollbar { width: 3px; }
+#dws::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
 .dwst {
-  font-size:9px; font-weight:700; font-family:var(--mono);
-  color:var(--muted2); text-transform:uppercase; letter-spacing:1px;
-  margin-bottom:8px; display:flex; align-items:center; gap:6px;
+  font-size: 9px; font-weight: 700; font-family: var(--mono);
+  color: var(--muted2); text-transform: uppercase; letter-spacing: 1px;
+  margin-bottom: 8px; display: flex; align-items: center; gap: 6px;
 }
-.dwst::after { content:''; flex:1; height:1px; background:var(--border); }
+.dwst::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 
-/* Info grid tiles */
-.ig2 { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
-.ig3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; }
-.it {
-  background:var(--s2); border:1px solid var(--border);
-  border-radius:var(--r2); padding:9px 10px;
-}
-.itl { font-size:8px; font-family:var(--mono); color:var(--muted2); text-transform:uppercase; letter-spacing:.8px; }
-.itv { font-size:13px; font-weight:600; font-family:var(--mono); margin-top:3px; }
-.its { font-size:9px; color:var(--muted2); margin-top:2px; }
+/* Info grid */
+.ig2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.ig3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+.it { background: var(--s2); border: 1px solid var(--border); border-radius: var(--r2); padding: 9px 10px; }
+.itl { font-size: 8px; font-family: var(--mono); color: var(--muted2); text-transform: uppercase; letter-spacing: .8px; }
+.itv { font-size: 13px; font-weight: 600; font-family: var(--mono); margin-top: 3px; }
+.its { font-size: 9px; color: var(--muted2); margin-top: 2px; }
 
 /* MO bar rows */
-.mobr { display:grid; grid-template-columns:50px 1fr 34px; align-items:center; gap:8px; margin-bottom:7px; }
-.mobi { display:flex; flex-direction:column; gap:3px; }
-.mobt { font-size:10px; color:var(--text); }
-.mobtr { height:4px; background:var(--border); border-radius:2px; overflow:hidden; }
-.mobtf { height:100%; border-radius:2px; }
-.mobp { font-size:10px; font-family:var(--mono); color:var(--muted); text-align:right; }
+.mobr { display: grid; grid-template-columns: 50px 1fr 34px; align-items: center; gap: 8px; margin-bottom: 7px; }
+.mobi { display: flex; flex-direction: column; gap: 3px; }
+.mobt { font-size: 10px; color: var(--text); }
+.mobtr { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+.mobtf { height: 100%; border-radius: 2px; }
+.mobp { font-size: 10px; font-family: var(--mono); color: var(--muted); text-align: right; }
 
 /* Velocity bar */
-.vb { height:34px; background:var(--s2); border:1px solid var(--border); border-radius:var(--r2); position:relative; overflow:hidden; display:flex; align-items:center; }
-.vc { position:absolute; left:50%; top:0; bottom:0; width:1px; background:var(--border2); z-index:1; }
-.vf { position:absolute; top:5px; bottom:5px; border-radius:3px; }
-.vlbl { position:absolute; width:100%; text-align:center; z-index:2; font-size:11px; font-family:var(--mono); font-weight:600; color:var(--text); }
+.vb { height: 34px; background: var(--s2); border: 1px solid var(--border); border-radius: var(--r2); position: relative; overflow: hidden; display: flex; align-items: center; }
+.vc { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--border2); z-index: 1; }
+.vf { position: absolute; top: 5px; bottom: 5px; border-radius: 3px; }
+.vlbl { position: absolute; width: 100%; text-align: center; z-index: 2; font-size: 11px; font-family: var(--mono); font-weight: 600; color: var(--text); }
 
-.pos { color:var(--green); }
-.neg { color:var(--red); }
+.pos { color: var(--green); }
+.neg { color: var(--red); }
 </style>
 </head>
 <body>
 
 <!-- NAV -->
-<nav id="nav">
+<nav id="qs-nav">
   <a class="nav-logo" href="/">
     <div class="nav-logo-icon">⚡</div>
     QuantScanner
   </a>
-  <a class="nav-link active" href="/">Scanner</a>
-  <a class="nav-link" href="/trend">Trend Viewer</a>
-  <a class="nav-link" href="/data">Data Fetch</a>
+  <a class="qs-nav-link active" href="/">Scanner</a>
+  <a class="qs-nav-link" href="/trend">Trend Viewer</a>
+  <a class="qs-nav-link" href="/data">Data Fetch</a>
   <div class="nav-spacer"></div>
   <div class="nav-dot-wrap">
     <span class="nav-live"></span>
@@ -519,7 +509,6 @@ select.ctrl {
   <aside id="sidebar">
     <div class="sb-header">
       <span class="sb-title">Filters</span>
-      <!-- Toggle button always visible; arrow flips via CSS -->
       <button class="sb-tog" onclick="toggleSB()" title="Toggle sidebar">
         <span class="sb-arr">◀</span>
       </button>
@@ -529,8 +518,8 @@ select.ctrl {
       <div>
         <div class="slbl">Direction</div>
         <div class="seg" id="dir-seg">
-          <button class="seg-btn buy" data-v="buy" onclick="setDir(this)">▲ Buy Zones</button>
-          <button class="seg-btn" data-v="sell" onclick="setDir(this)">▼ Sell Zones</button>
+          <button class="seg-btn buy"  data-v="buy"  onclick="setDir(this)">▲ Buy Zones</button>
+          <button class="seg-btn"      data-v="sell" onclick="setDir(this)">▼ Sell Zones</button>
         </div>
       </div>
 
@@ -598,28 +587,29 @@ select.ctrl {
               </label>
             </div>
             <div class="tdg">Bullish</div>
-            <div class="tdo"><input type="checkbox" class="tc" value="strong_uptrend" checked><span>Strong uptrend</span></div>
-            <div class="tdo"><input type="checkbox" class="tc" value="continuous_uptrend" checked><span>Continuous uptrend</span></div>
-            <div class="tdo"><input type="checkbox" class="tc" value="up" checked><span>Up</span></div>
-            <div class="tdo"><input type="checkbox" class="tc" value="semi-up" checked><span>Semi-up</span></div>
-            <div class="tdo"><input type="checkbox" class="tc" value="weakening_uptrend" checked><span>Weakening uptrend</span></div>
-            <div class="tdo"><input type="checkbox" class="tc" value="bullish_mitigation" checked><span>Bullish mitigation</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="strong_uptrend"      checked><span>Strong uptrend</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="continuous_uptrend"  checked><span>Continuous uptrend</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="up"                  checked><span>Up</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="semi-up"             checked><span>Semi-up</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="weakening_uptrend"   checked><span>Weakening uptrend</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="bullish_mitigation"  checked><span>Bullish mitigation</span></div>
             <div class="tdg" style="margin-top:4px">Neutral</div>
-            <div class="tdo"><input type="checkbox" class="tc" value="consolidate" checked><span>Consolidate</span></div>
-            <div class="tdo"><input type="checkbox" class="tc" value="flat_consolidation" checked><span>Flat consolidation</span></div>
-            <div class="tdo"><input type="checkbox" class="tc" value="deep_consolidation" checked><span>Deep consolidation</span></div>
-            <div class="tdo"><input type="checkbox" class="tc" value="sw" checked><span>SW sideways</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="consolidate"         checked><span>Consolidate</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="flat_consolidation"  checked><span>Flat consolidation</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="deep_consolidation"  checked><span>Deep consolidation</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="sw"                  checked><span>SW sideways</span></div>
             <div class="tdo"><input type="checkbox" class="tc" value="expanding_structure" checked><span>Expanding structure</span></div>
             <div class="tdg" style="margin-top:4px">Bearish</div>
             <div class="tdo"><input type="checkbox" class="tc" value="weakening_downtrend" checked><span>Weakening downtrend</span></div>
-            <div class="tdo"><input type="checkbox" class="tc" value="down" checked><span>Down</span></div>
-            <div class="tdo"><input type="checkbox" class="tc" value="continuous_downtrend" checked><span>Continuous downtrend</span></div>
-            <div class="tdo"><input type="checkbox" class="tc" value="strong_downtrend" checked><span>Strong downtrend</span></div>
-            <div class="tdo"><input type="checkbox" class="tc" value="transitioning" checked><span>Transitioning</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="down"                checked><span>Down</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="continuous_downtrend"checked><span>Continuous downtrend</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="strong_downtrend"    checked><span>Strong downtrend</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="transitioning"       checked><span>Transitioning</span></div>
           </div>
         </div>
       </div>
 
+      <!-- Multi-Order -->
       <div>
         <div class="slbl">Multi-Order</div>
         <div class="moc">
@@ -679,8 +669,8 @@ select.ctrl {
       <span class="rptit">Scan Results</span>
       <span class="rpcnt" id="rcnt">—</span>
       <div class="rpsrt">
-        <button class="srtb on" id="s-age" onclick="sortBy('bars_ago')" title="Sort by recency">⏱</button>
-        <button class="srtb" id="s-atr" onclick="sortBy('atr_pct')" title="Sort by ATR">σ</button>
+        <button class="srtb on" id="s-age" onclick="sortBy('bars_ago')"  title="Sort by recency">⏱</button>
+        <button class="srtb"    id="s-atr" onclick="sortBy('atr_pct')"   title="Sort by ATR">σ</button>
       </div>
     </div>
     <div class="rpcols">
@@ -699,16 +689,29 @@ select.ctrl {
 
   <!-- ═══ CHART PANEL ═══ -->
   <div id="cp">
+    <!-- Chart header -->
     <div class="cph">
       <span class="cptk" id="cptk">—</span>
       <span class="cppr" id="cppr"></span>
       <span id="cptr" class="tbadge t-co" style="display:none"></span>
-      <div class="tfg">
+
+      <!-- Pivot order controls — rendered by JS -->
+      <div class="pivot-ctrl" id="pivot-ctrl">
+        <span class="pivot-ctrl-lbl">Pivots:</span>
+        <div class="pivot-order-group" id="pivot-order-btns">
+          <!-- populated by updatePivotOrderButtons() -->
+        </div>
+      </div>
+
+      <!-- TF buttons -->
+      <div class="tfg" style="margin-left:8px">
         <button class="tfb on" onclick="setChTF('1d',this)">1D</button>
-        <button class="tfb" onclick="setChTF('1wk',this)">1W</button>
-        <button class="tfb" onclick="setChTF('1h',this)">1H</button>
+        <button class="tfb"    onclick="setChTF('1wk',this)">1W</button>
+        <button class="tfb"    onclick="setChTF('1h',this)">1H</button>
       </div>
     </div>
+
+    <!-- Legend -->
     <div class="cpleg">
       <span class="li"><span class="ld" style="background:#ef4444"></span>Top pivot</span>
       <span class="li"><span class="ld" style="background:#22c55e"></span>Bottom pivot</span>
@@ -716,20 +719,25 @@ select.ctrl {
       <span class="li"><span class="lr" style="background:rgba(45,212,191,.2);border:1px solid #2dd4bf"></span>DBR</span>
       <span class="li"><span class="lr" style="background:rgba(167,139,250,.2);border:1px solid #a78bfa"></span>Consol.</span>
       <span class="li"><span class="lr" style="background:rgba(100,100,100,.15);border:1px dashed #666"></span>Invalidated</span>
+      <span class="li" id="pivot-order-legend" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--muted)"></span>
     </div>
+
+    <!-- Chart container -->
     <div id="cw">
       <div class="empty-st"><div class="e-ico">📈</div><div class="e-txt">Select a stock to view chart</div></div>
       <div id="cload"><div class="cspn"></div></div>
     </div>
+
+    <!-- Metric bar -->
     <div class="cpmet">
-      <div class="met"><div class="ml">ATR %</div><div class="mv" id="m1">—</div></div>
-      <div class="met"><div class="ml">Trend Str.</div><div class="mv" id="m2">—</div></div>
-      <div class="met"><div class="ml">Zones</div><div class="mv" id="m3">—</div></div>
-      <div class="met"><div class="ml">Zone Age</div><div class="mv" id="m4">—</div></div>
-      <div class="met"><div class="ml">Pivots</div><div class="mv" id="m5">—</div></div>
-      <div class="met"><div class="ml">Velocity</div><div class="mv" id="m6">—</div></div>
-      <div class="met"><div class="ml">Leg Ratio</div><div class="mv" id="m7">—</div></div>
-      <div class="met"><div class="ml">Amplitude</div><div class="mv" id="m8">—</div></div>
+      <div class="met"><div class="ml">ATR %</div>      <div class="mv" id="m1">—</div></div>
+      <div class="met"><div class="ml">Trend Str.</div>  <div class="mv" id="m2">—</div></div>
+      <div class="met"><div class="ml">Zones</div>       <div class="mv" id="m3">—</div></div>
+      <div class="met"><div class="ml">Zone Age</div>    <div class="mv" id="m4">—</div></div>
+      <div class="met"><div class="ml">Pivots</div>      <div class="mv" id="m5">—</div></div>
+      <div class="met"><div class="ml">Velocity</div>    <div class="mv" id="m6">—</div></div>
+      <div class="met"><div class="ml">Leg Ratio</div>   <div class="mv" id="m7">—</div></div>
+      <div class="met"><div class="ml">Amplitude</div>   <div class="mv" id="m8">—</div></div>
     </div>
   </div>
 
@@ -751,17 +759,27 @@ select.ctrl {
 
 <script>
 /* ════════════════════════════════════════════════
-   STATE & GLOBALS
+   CONSTANTS & STATE
 ════════════════════════════════════════════════ */
 const API = '/api';
+const G   = id => document.getElementById(id);
+
+// Chart state
 let chart = null, cs = null, xtra = [];
 let chartTF = '1d';
+
+// Pivot order state
+// activePivotLevels = set of which levels are shown: 'single'|'H'|'M'|'L'
+// pivotSeries = { single: series, H: series, M: series, L: series }
+let activePivotLevels = new Set(['single']);
+let pivotSeries = {};
+
+// Scan results state
 let rows = [], activeIdx = -1, sortKey = 'bars_ago';
+let currentRow = null;  // the row currently shown in chart
 
-// AbortController — cancels stale chart fetches
-let pendingAbort = null, pendingTicker = null;
-
-const G = id => document.getElementById(id);
+// Chart loading state — use a simple counter, no AbortController race
+let chartLoadId = 0;  // increment on each load; check before rendering
 
 const UP = new Set(['strong_uptrend','continuous_uptrend','up','semi-up','weakening_uptrend','bullish_mitigation']);
 const DN = new Set(['strong_downtrend','continuous_downtrend','down','weakening_downtrend']);
@@ -781,13 +799,104 @@ const ZT = {
   consolidation: { bg:'rgba(167,139,250,.1)', c:'#a78bfa', b:'rgba(167,139,250,.3)' },
 };
 
+// Colors for pivot order buttons
+const MO_COLORS = {
+  H: { dot: '#7c3aed', label: 'HIGH', cls: 'moH' },
+  M: { dot: '#1d4ed8', label: 'MID',  cls: 'moM' },
+  L: { dot: '#16a34a', label: 'LOW',  cls: 'moL' },
+};
+
 /* ════════════════════════════════════════════════
-   SIDEBAR TOGGLE — re-expand also works
+   PIVOT ORDER BUTTON SYSTEM
+   - When MO disabled: show one button "Order N" (toggled on)
+   - When MO enabled:  show 3 buttons H(N)/M(N)/L(N), all on by default
+════════════════════════════════════════════════ */
+function updatePivotOrderButtons() {
+  const moEnabled = G('moen').checked;
+  const container = G('pivot-order-btns');
+  container.innerHTML = '';
+  activePivotLevels = new Set();
+
+  if (!moEnabled) {
+    // Single order button
+    const order = G('order').value;
+    const btn   = document.createElement('button');
+    btn.className   = 'pob on';
+    btn.dataset.level = 'single';
+    btn.innerHTML   = `<span class="pob-dot" style="background:#3b82f6"></span>Order ${order}`;
+    btn.title       = `Showing pivots at order ${order}`;
+    btn.onclick     = () => togglePivotLevel('single', btn);
+    container.appendChild(btn);
+    activePivotLevels.add('single');
+  } else {
+    // Three MO buttons
+    const orders = {
+      H: G('moh').value,
+      M: G('mom').value,
+      L: G('mol').value,
+    };
+    ['H','M','L'].forEach(lv => {
+      const mc  = MO_COLORS[lv];
+      const btn = document.createElement('button');
+      btn.className   = `pob on ${mc.cls}`;
+      btn.dataset.level = lv;
+      btn.innerHTML   = `<span class="pob-dot" style="background:${mc.dot}"></span>${mc.label}(${orders[lv]})`;
+      btn.title       = `Toggle ${mc.label} order ${orders[lv]} pivots`;
+      btn.onclick     = () => togglePivotLevel(lv, btn);
+      container.appendChild(btn);
+      activePivotLevels.add(lv);
+    });
+  }
+  updatePivotLegend();
+}
+
+function togglePivotLevel(level, btn) {
+  const isOn = activePivotLevels.has(level);
+  // Don't allow deselecting the last active level
+  if (isOn && activePivotLevels.size === 1) return;
+
+  if (isOn) {
+    activePivotLevels.delete(level);
+    btn.classList.remove('on');
+  } else {
+    activePivotLevels.add(level);
+    btn.classList.add('on');
+  }
+  // Show/hide the series in chart
+  applyPivotVisibility();
+  updatePivotLegend();
+}
+
+function applyPivotVisibility() {
+  // Show/hide pivot series without reloading chart
+  Object.entries(pivotSeries).forEach(([level, seriesArr]) => {
+    const visible = activePivotLevels.has(level);
+    (seriesArr || []).forEach(s => {
+      try { s.applyOptions({ visible }); } catch(e){}
+    });
+  });
+}
+
+function updatePivotLegend() {
+  const moEnabled = G('moen').checked;
+  const leg = G('pivot-order-legend');
+  if (!moEnabled) {
+    leg.textContent = `order=${G('order').value}`;
+  } else {
+    const parts = [];
+    if (activePivotLevels.has('H')) parts.push(`H=${G('moh').value}`);
+    if (activePivotLevels.has('M')) parts.push(`M=${G('mom').value}`);
+    if (activePivotLevels.has('L')) parts.push(`L=${G('mol').value}`);
+    leg.textContent = parts.join(' · ');
+  }
+}
+
+/* ════════════════════════════════════════════════
+   SIDEBAR TOGGLE
 ════════════════════════════════════════════════ */
 function toggleSB() {
   const sb = G('sidebar');
   sb.classList.toggle('col');
-  // When collapsing the trend dropdown must close too
   if (sb.classList.contains('col')) {
     G('tdd').classList.remove('op');
     G('ttrig').classList.remove('op');
@@ -803,6 +912,8 @@ function stp(id, d) {
   e.value = s < 1
     ? parseFloat((parseFloat(e.value) + d).toFixed(2))
     : Math.round(parseFloat(e.value) + d);
+  // If it was the main order input, refresh the single-order button label
+  if (id === 'order' && !G('moen').checked) updatePivotOrderButtons();
 }
 
 function setDir(btn) {
@@ -835,9 +946,10 @@ function allT(cb) { document.querySelectorAll('.tc').forEach(c => c.checked = cb
 function updTL() {
   const all = document.querySelectorAll('.tc');
   const chk = [...all].filter(c => c.checked);
-  G('all-t').checked = chk.length === all.length;
+  G('all-t').checked       = chk.length === all.length;
   G('all-t').indeterminate = chk.length > 0 && chk.length < all.length;
-  G('tlbl').textContent = chk.length === all.length ? 'All trends' : chk.length === 0 ? 'No trends' : `${chk.length} selected`;
+  G('tlbl').textContent    = chk.length === all.length ? 'All trends'
+    : chk.length === 0 ? 'No trends' : `${chk.length} selected`;
 }
 document.querySelectorAll('.tc').forEach(cb => cb.addEventListener('change', updTL));
 function getSelTrends() {
@@ -845,7 +957,10 @@ function getSelTrends() {
   return c.length === document.querySelectorAll('.tc').length ? '' : c.join(',');
 }
 
-function toggleMO(en) { G('mob').classList.toggle('hid', !en); }
+function toggleMO(en) {
+  G('mob').classList.toggle('hid', !en);
+  updatePivotOrderButtons(); // rebuild pivot buttons for new MO state
+}
 
 /* ════════════════════════════════════════════════
    SCAN
@@ -863,20 +978,20 @@ async function runScan() {
   try {
     const mo = G('moen').checked;
     const tr = getSelTrends();
-    const p = new URLSearchParams({
-      direction:    getDir(),
-      interval:     getTF(),
-      order:        G('order').value,
-      zone_lookback:G('zlb').value,
-      legout_mult:  G('legout').value,
-      strategy:     G('strat').value,
-      multi_order:  mo,
-      order_low:    G('mol').value,
-      order_mid:    G('mom').value,
-      order_high:   G('moh').value,
-      trend_low:    G('molt').value,
-      trend_mid:    G('momt').value,
-      trend_high:   G('moht').value,
+    const p  = new URLSearchParams({
+      direction:     getDir(),
+      interval:      getTF(),
+      order:         G('order').value,
+      zone_lookback: G('zlb').value,
+      legout_mult:   G('legout').value,
+      strategy:      G('strat').value,
+      multi_order:   mo,
+      order_low:     G('mol').value,
+      order_mid:     G('mom').value,
+      order_high:    G('moh').value,
+      trend_low:     G('molt').value,
+      trend_mid:     G('momt').value,
+      trend_high:    G('moht').value,
     });
     if (tr) p.set('trend_filter', tr);
 
@@ -884,12 +999,12 @@ async function runScan() {
     const d = await r.json();
     rows = d.results || [];
 
-    G('rcnt').textContent = rows.length;
-    G('nbadge').style.display = 'block';
-    G('nbadge').textContent = `${rows.length} setups`;
-    G('nst').textContent = `${rows.length} found`;
+    G('rcnt').textContent      = rows.length;
+    G('nbadge').style.display  = 'block';
+    G('nbadge').textContent    = `${rows.length} setups`;
+    G('nst').textContent       = `${rows.length} found`;
 
-    buildList();   // build HTML once — no re-render on clicks
+    buildList();
     saveState();
   } catch(e) {
     G('rlist').innerHTML = `<div class="empty-st"><span style="color:var(--red)">⚠ ${e.message}</span></div>`;
@@ -900,8 +1015,7 @@ async function runScan() {
 }
 
 /* ════════════════════════════════════════════════
-   BUILD LIST — called once after scan / sort
-   NO css animation on rows → no flash on click
+   BUILD LIST — HTML once, no re-render on clicks
 ════════════════════════════════════════════════ */
 function buildList() {
   const list = G('rlist');
@@ -932,7 +1046,7 @@ function buildList() {
 }
 
 /* ════════════════════════════════════════════════
-   MARK ACTIVE — only toggles CSS class, zero re-render → no flash
+   MARK ACTIVE — toggle CSS class only, zero re-render
 ════════════════════════════════════════════════ */
 function markActive(i) {
   document.querySelectorAll('.sr.on').forEach(e => e.classList.remove('on'));
@@ -946,23 +1060,35 @@ function markActive(i) {
 ════════════════════════════════════════════════ */
 async function selStock(i) {
   const row = rows[i]; if (!row) return;
-  markActive(i);
 
+  // ── FIX: prevent double-click flicker ──
+  // If the same stock is already loaded (chart is showing it), do nothing.
+  // If a different stock is clicked, proceed immediately.
+  if (currentRow && currentRow.ticker === row.ticker && currentRow._tf === chartTF) {
+    markActive(i);
+    return;
+  }
+
+  markActive(i);
+  currentRow = { ...row, _tf: chartTF };
+
+  // Update header info immediately (feels responsive)
   G('cptk').textContent = row.ticker.replace('.NS','');
   G('cppr').textContent = '₹' + (row.close||0).toLocaleString('en-IN', {maximumFractionDigits:2});
   const te = G('cptr');
-  te.textContent = (row.trend||'').replace(/_/g,' ');
-  te.className   = 'tbadge ' + tCls(row.trend);
+  te.textContent   = (row.trend||'').replace(/_/g,' ');
+  te.className     = 'tbadge ' + tCls(row.trend);
   te.style.display = 'inline-block';
 
+  // Update metric bar
   G('m1').textContent = row.atr_pct + '%';
   G('m2').textContent = row.trend_strength || '—';
   G('m3').textContent = row.zones_count ?? '—';
   G('m4').textContent = row.bars_ago + 'b';
   G('m5').textContent = row.pivot_count ?? '—';
-  const vs = (row.vel_current||0) >= 0 ? '+' : '';
-  G('m6').textContent = `${vs}${row.vel_current}`;
-  G('m6').className   = 'mv ' + ((row.vel_current||0) >= 0 ? 'pos' : 'neg');
+  const vp = (row.vel_current||0) >= 0;
+  G('m6').textContent = `${vp?'+':''}${row.vel_current}`;
+  G('m6').className   = 'mv ' + (vp ? 'pos' : 'neg');
   G('m7').textContent = (row.lr_ratio||0) + '×';
   G('m7').className   = 'mv ' + ((row.lr_ratio||1) >= 1 ? 'pos' : 'neg');
   G('m8').textContent = row.amp_avg || '—';
@@ -984,131 +1110,298 @@ function sortBy(k) {
 }
 
 /* ════════════════════════════════════════════════
-   CHART — AbortController prevents stale renders
+   CHART INIT
 ════════════════════════════════════════════════ */
 function initChart() {
   const wrap = G('cw');
-  if (chart) { try { chart.remove(); } catch(e){} chart = null; cs = null; xtra = []; }
-  const cl = G('cload');
+
+  // Remove old chart cleanly
+  if (chart) {
+    try { chart.remove(); } catch(e){}
+    chart = null; cs = null; xtra = []; pivotSeries = {};
+  }
+
+  // Clear placeholder
+  const loader = G('cload');
   wrap.innerHTML = '';
-  wrap.appendChild(cl);
+  wrap.appendChild(loader);
 
   chart = LightweightCharts.createChart(wrap, {
-    width: wrap.clientWidth, height: wrap.clientHeight || 400,
+    width:  wrap.clientWidth,
+    height: wrap.clientHeight || 400,
     layout:    { background: { color: '#0d0f12' }, textColor: '#8892a0' },
     grid:      { vertLines: { color: '#1a1f28' }, horzLines: { color: '#1a1f28' } },
     crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
     rightPriceScale: { borderColor: '#2a3040' },
     timeScale: { borderColor: '#2a3040', timeVisible: true, secondsVisible: false },
   });
+
   cs = chart.addCandlestickSeries({
     upColor: '#22c55e', downColor: '#ef4444',
     borderUpColor: '#22c55e', borderDownColor: '#ef4444',
     wickUpColor: '#22c55e', wickDownColor: '#ef4444',
   });
+
   new ResizeObserver(() => {
     if (chart) chart.applyOptions({ width: wrap.clientWidth, height: wrap.clientHeight });
   }).observe(wrap);
 }
 
-async function loadChart(row) {
-  // Cancel any in-flight fetch
-  if (pendingAbort) { pendingAbort.abort(); pendingAbort = null; }
-  pendingTicker = row.ticker;
+/* ════════════════════════════════════════════════
+   CHART LOAD
+   Uses a load-ID counter (not AbortController) to
+   discard stale responses without race conditions.
 
+   FIX for double-click bug:
+   - Show spinner immediately
+   - Increment loadId BEFORE the fetch
+   - Only render if loadId still matches at response time
+   - Never re-init the chart on the second call to the SAME ticker
+════════════════════════════════════════════════ */
+async function loadChart(row) {
+  // Always ensure chart exists
   if (!chart) initChart();
 
-  // Clear old zone series
+  // Clear previous zone/pivot series
   xtra.forEach(s => { try { chart.removeSeries(s); } catch(e){} });
   xtra = [];
+  pivotSeries = {};
+
+  // Increment load ID — any in-flight request with an older ID will be discarded
+  const myId = ++chartLoadId;
 
   G('cload').classList.add('show');
-  const ctrl = new AbortController();
-  pendingAbort = ctrl;
 
   try {
+    const moEnabled = G('moen').checked;
+
+    // Build URL — always request multi_order so we get pivot data at all orders
     const url = `${API}/chart/${encodeURIComponent(row.ticker)}`
       + `?interval=${chartTF}`
       + `&order=${G('order').value}`
       + `&legout_mult=${G('legout').value}`
       + `&strategy=${G('strat').value}`
       + `&zone_lookback=${G('zlb').value}`
-      + `&multi_order=${G('moen').checked}`
+      + `&multi_order=true`          // always request MO pivot data
       + `&order_low=${G('mol').value}`
       + `&order_mid=${G('mom').value}`
       + `&order_high=${G('moh').value}`;
 
-    const res = await fetch(url, { signal: ctrl.signal });
-    const d   = await res.json();
+    const res = await fetch(url);
 
-    // Discard if a newer request was started
-    if (pendingTicker !== row.ticker) return;
-    if (d.error) return;
+    // Discard if a newer request has started
+    if (myId !== chartLoadId) return;
 
+    const d = await res.json();
+
+    // Second check after await
+    if (myId !== chartLoadId) return;
+    if (d.error) { console.warn('Chart error:', d.error); return; }
+
+    // ── Candles ──
     cs.setData(d.candles);
-    cs.setMarkers((d.pivots||[]).map(p => ({
-      time: p.time,
-      position: p.type === 'T' ? 'aboveBar' : 'belowBar',
-      color:    p.type === 'T' ? '#ef4444'  : '#22c55e',
-      shape:    p.type === 'T' ? 'arrowDown': 'arrowUp',
-      size: 1,
-    })));
 
+    // ── Pivot series ──
+    // The backend's /api/chart endpoint returns pivots at the primary `order`.
+    // For multi-order, we request via /api/trend for each order level.
+    // Here we use the pivots already in d.pivots (primary order) as 'single'.
+    // For MO levels, we use the multiorder pivot data if present.
+    renderPivotSeries(d, row);
+
+    // ── Zones ──
     const dir   = row.direction || getDir();
     const zones = dir === 'buy' ? (d.buy_zones||[]) : (d.sell_zones||[]);
     renderZones(zones, d.candles, row.zone_legin_ts);
+
     chart.timeScale().fitContent();
 
   } catch(e) {
-    if (e.name === 'AbortError') return; // silently ignore cancelled requests
+    if (myId !== chartLoadId) return; // stale, ignore
     console.warn('Chart load error:', e);
   } finally {
-    if (pendingTicker === row.ticker) {
+    // Only hide spinner if this is still the latest request
+    if (myId === chartLoadId) {
       G('cload').classList.remove('show');
-      pendingAbort = null;
     }
   }
 }
 
-function renderZones(zones, candles, aLI) {
-  if (!candles?.length) return;
-  const first  = candles[0].time;
-  const last   = candles[candles.length-1].time;
-  const bSec   = candles.length > 1 ? last - candles[candles.length-2].time : 86400;
-  const CL = { rbr:'#22c55e', dbr:'#2dd4bf', dbd:'#ef4444', rbd:'#f97316', consolidation:'#a78bfa' };
+/* ════════════════════════════════════════════════
+   PIVOT SERIES RENDERING
 
-  zones.sort((a,b) => a.time_start - b.time_start).forEach(z => {
-    if (!z.price_high || !z.price_low || z.price_high <= z.price_low) return;
-    const ts0 = Math.max(z.time_start, first);
-    const ts1 = Math.max(last + bSec*5, z.time_end + bSec*3);
-    if (ts0 > last) return;
+   For single-order mode: render one set of markers from d.pivots
+   For multi-order mode:  render separate series per level
+     - d.multiorder.low/mid/high won't have pivot point arrays,
+       so we make separate API calls to /api/trend for each order.
+     - We cache results to avoid re-fetching.
+════════════════════════════════════════════════ */
 
-    const inv = z.status === 'invalidated';
-    const isA = aLI && Math.abs(z.time_start - aLI) <= 86400;
-    const col = inv ? '#666' : (CL[z.zone_type] || '#22c55e');
-    const lw  = isA ? 2 : 1;
-    const ls  = inv ? 2 : 0;
-    const ca  = inv ? '55' : isA ? 'ff' : 'bb';
-    const fa  = inv ? '0d' : isA ? '44' : '22';
+// Cache: ticker+tf+order -> pivot data array
+const _pivotCache = {};
 
-    try {
-      const top = chart.addLineSeries({ color:col+ca, lineWidth:lw, lineStyle:ls, crosshairMarkerVisible:false, lastValueVisible:false, priceLineVisible:false });
-      top.setData([{time:ts0,value:z.price_high},{time:ts1,value:z.price_high}]);
-      const bot = chart.addLineSeries({ color:col+ca, lineWidth:lw, lineStyle:ls, crosshairMarkerVisible:false, lastValueVisible:false, priceLineVisible:false });
-      bot.setData([{time:ts0,value:z.price_low},{time:ts1,value:z.price_low}]);
-      const fill = chart.addBaselineSeries({ baseValue:{type:'price',price:z.price_low}, topLineColor:'transparent', topFillColor1:col+fa, topFillColor2:col+'0d', bottomLineColor:'transparent', bottomFillColor1:'transparent', bottomFillColor2:'transparent', lineWidth:0, crosshairMarkerVisible:false, lastValueVisible:false, priceLineVisible:false });
-      fill.setData([{time:ts0,value:z.price_high},{time:ts1,value:z.price_high}]);
-      xtra.push(top, bot, fill);
-    } catch(e){}
-  });
+async function getPivotsForOrder(ticker, tf, order) {
+  const key = `${ticker}|${tf}|${order}`;
+  if (_pivotCache[key]) return _pivotCache[key];
+
+  try {
+    const r = await fetch(`${API}/trend/${encodeURIComponent(ticker)}?interval=${tf}&order=${order}&days=500`);
+    const d = await r.json();
+    _pivotCache[key] = d.pivots || [];
+    return _pivotCache[key];
+  } catch(e) {
+    return [];
+  }
 }
 
+async function renderPivotSeries(d, row) {
+  const moEnabled = G('moen').checked;
+  pivotSeries = {};
+
+  if (!moEnabled) {
+    // Single order — use pivots already in chart data
+    const s = addPivotMarkersToChart(d.pivots || [], '#3b82f6');
+    pivotSeries['single'] = s;
+  } else {
+    // Multi-order — fetch pivots for each level separately
+    // Do this in parallel
+    const myId = chartLoadId; // capture current load id
+
+    const [pvH, pvM, pvL] = await Promise.all([
+      getPivotsForOrder(row.ticker, chartTF, G('moh').value),
+      getPivotsForOrder(row.ticker, chartTF, G('mom').value),
+      getPivotsForOrder(row.ticker, chartTF, G('mol').value),
+    ]);
+
+    // Check if still current load
+    if (myId !== chartLoadId) return;
+
+    const levelColors = { H: '#7c3aed', M: '#1d4ed8', L: '#16a34a' };
+    pivotSeries['H'] = addPivotMarkersToChart(pvH, levelColors.H);
+    pivotSeries['M'] = addPivotMarkersToChart(pvM, levelColors.M);
+    pivotSeries['L'] = addPivotMarkersToChart(pvL, levelColors.L);
+  }
+
+  // Apply current visibility state
+  applyPivotVisibility();
+}
+
+function addPivotMarkersToChart(pivots, color) {
+  // Returns array of series objects added (line for connection + markers via candle)
+  // We use the candlestick series markers API to avoid managing separate line series
+  // for each pivot set. Instead, we keep a hidden line series that carries markers.
+  if (!chart || !pivots?.length) return [];
+
+  try {
+    const lineSeries = chart.addLineSeries({
+      color: 'transparent',
+      lineWidth: 1,
+      crosshairMarkerVisible: false,
+      lastValueVisible: false,
+      priceLineVisible: false,
+    });
+
+    // Map pivot data to time/value for the line series
+    const lineData = pivots
+      .filter(p => p && p.time && p.value != null)
+      .map(p => ({ time: p.time, value: p.value }));
+
+    if (lineData.length) lineSeries.setData(lineData);
+
+    lineSeries.setMarkers(
+      pivots
+        .filter(p => p && p.time)
+        .map(p => ({
+          time:     p.time,
+          position: p.type === 'T' ? 'aboveBar' : 'belowBar',
+          color:    p.type === 'T' ? '#ef4444'  : '#22c55e',
+          shape:    p.type === 'T' ? 'arrowDown': 'arrowUp',
+          size: 1,
+          // Use color tint to indicate which order level
+          text: '',
+        }))
+    );
+
+    xtra.push(lineSeries);
+    return [lineSeries];
+  } catch(e) {
+    return [];
+  }
+}
+
+/* ════════════════════════════════════════════════
+   ZONE RENDERING
+════════════════════════════════════════════════ */
+function renderZones(zones, candles, aLI) {
+  if (!candles?.length || !zones?.length) return;
+
+  const first = candles[0].time;
+  const last  = candles[candles.length - 1].time;
+  const bSec  = candles.length > 1 ? last - candles[candles.length - 2].time : 86400;
+
+  const CL = {
+    rbr: '#22c55e', dbr: '#2dd4bf', dbd: '#ef4444',
+    rbd: '#f97316', consolidation: '#a78bfa'
+  };
+
+  zones
+    .sort((a, b) => a.time_start - b.time_start)
+    .forEach(z => {
+      if (!z.price_high || !z.price_low || z.price_high <= z.price_low) return;
+
+      const ts0  = Math.max(z.time_start, first);
+      const ts1  = Math.max(last + bSec * 5, z.time_end + bSec * 3);
+      if (ts0 > last) return;
+
+      const inv  = z.status === 'invalidated';
+      const isA  = aLI && Math.abs(z.time_start - aLI) <= 86400;
+      const col  = inv ? '#666' : (CL[z.zone_type] || '#22c55e');
+      const lw   = isA ? 2 : 1;
+      const ls   = inv ? 2 : 0;
+      const ca   = inv ? '55' : isA ? 'ff' : 'bb';
+      const fa   = inv ? '0d' : isA ? '44' : '22';
+
+      try {
+        const top = chart.addLineSeries({
+          color: col + ca, lineWidth: lw, lineStyle: ls,
+          crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false,
+        });
+        top.setData([{ time: ts0, value: z.price_high }, { time: ts1, value: z.price_high }]);
+
+        const bot = chart.addLineSeries({
+          color: col + ca, lineWidth: lw, lineStyle: ls,
+          crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false,
+        });
+        bot.setData([{ time: ts0, value: z.price_low }, { time: ts1, value: z.price_low }]);
+
+        const fill = chart.addBaselineSeries({
+          baseValue: { type: 'price', price: z.price_low },
+          topLineColor: 'transparent', topFillColor1: col + fa, topFillColor2: col + '0d',
+          bottomLineColor: 'transparent', bottomFillColor1: 'transparent', bottomFillColor2: 'transparent',
+          lineWidth: 0, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false,
+        });
+        fill.setData([{ time: ts0, value: z.price_high }, { time: ts1, value: z.price_high }]);
+
+        xtra.push(top, bot, fill);
+      } catch(e) {}
+    });
+}
+
+/* ════════════════════════════════════════════════
+   TF CHANGE
+════════════════════════════════════════════════ */
 function setChTF(tf, btn) {
   chartTF = tf;
   document.querySelectorAll('.tfg .tfb').forEach(b => b.classList.remove('on'));
   btn.classList.add('on');
-  const row = rows[activeIdx];
-  if (row) loadChart(row);
+  // Clear pivot cache for new TF
+  Object.keys(_pivotCache).forEach(k => {
+    if (k.includes(`|${tf}|`)) delete _pivotCache[k];
+  });
+  // Reload if stock is selected
+  if (currentRow) {
+    currentRow._tf = tf;
+    loadChart(currentRow);
+  }
 }
 
 /* ════════════════════════════════════════════════
@@ -1128,6 +1421,7 @@ function openDW(e, i) {
   G('dw').classList.add('open');
   G('dov').classList.add('show');
 }
+
 function closeDW() {
   G('dw').classList.remove('open');
   G('dov').classList.remove('show');
@@ -1141,13 +1435,12 @@ function buildDW(r) {
   const zt  = ZT[r.zone_type] || ZT.rbr;
   const zsc = r.zone_status === 'fresh' ? '#22c55e' : r.zone_status === 'tested' ? '#f59e0b' : 'var(--muted2)';
 
-  // MO block
   let mo = '';
   if (r.mo_low_trend) {
     const lvs = [
-      {l:'H', c:'moH', o:r.mo_order_high, t:r.mo_high_trend, s:r.mo_high_score},
-      {l:'M', c:'moM', o:r.mo_order_mid,  t:r.mo_mid_trend,  s:r.mo_mid_score},
-      {l:'L', c:'moL', o:r.mo_order_low,  t:r.mo_low_trend,  s:r.mo_low_score},
+      { l:'H', c:'moH', o:r.mo_order_high, t:r.mo_high_trend, s:r.mo_high_score },
+      { l:'M', c:'moM', o:r.mo_order_mid,  t:r.mo_mid_trend,  s:r.mo_mid_score  },
+      { l:'L', c:'moL', o:r.mo_order_low,  t:r.mo_low_trend,  s:r.mo_low_score  },
     ];
     const dots = '●'.repeat(r.mo_alignment||0) + '○'.repeat(3-(r.mo_alignment||0));
     mo = `<div>
@@ -1229,7 +1522,7 @@ function buildDW(r) {
 /* ════════════════════════════════════════════════
    SESSION STATE
 ════════════════════════════════════════════════ */
-const SS = 'qs_v6';
+const SS = 'qs_v7';
 function saveState() {
   try {
     sessionStorage.setItem(SS, JSON.stringify({
@@ -1243,7 +1536,7 @@ function saveState() {
       moEn:     G('moen').checked,
       sbCol:    G('sidebar').classList.contains('col'),
     }));
-  } catch(e){}
+  } catch(e) {}
 }
 
 function restoreState() {
@@ -1256,10 +1549,14 @@ function restoreState() {
     if (s.legout)   G('legout').value = s.legout;
     if (s.moEn)     { G('moen').checked = true; toggleMO(true); }
     if (s.sbCol)    G('sidebar').classList.add('col');
-    if (s.tf) G('tfc-row').querySelectorAll('.tfc').forEach(b => b.classList.toggle('on', b.dataset.v === s.tf));
+    if (s.tf) G('tfc-row').querySelectorAll('.tfc').forEach(b =>
+      b.classList.toggle('on', b.dataset.v === s.tf)
+    );
     if (s.chartTF) {
       chartTF = s.chartTF;
-      document.querySelectorAll('.tfg .tfb').forEach(b => b.classList.toggle('on', b.textContent.toLowerCase() === chartTF));
+      document.querySelectorAll('.tfg .tfb').forEach(b =>
+        b.classList.toggle('on', b.textContent.toLowerCase() === chartTF)
+      );
     }
     if (s.dir) {
       G('dir-seg').querySelectorAll('.seg-btn').forEach(b => {
@@ -1269,16 +1566,24 @@ function restoreState() {
     }
     if (s.rows?.length) {
       rows = s.rows;
-      G('rcnt').textContent = rows.length;
-      G('nbadge').style.display = 'block';
-      G('nbadge').textContent   = `${rows.length} setups`;
+      G('rcnt').textContent       = rows.length;
+      G('nbadge').style.display   = 'block';
+      G('nbadge').textContent     = `${rows.length} setups`;
       buildList();
-      if (s.activeIdx >= 0) setTimeout(() => selStock(s.activeIdx), 300);
+      if (s.activeIdx >= 0) setTimeout(() => selStock(s.activeIdx), 400);
     }
-  } catch(e){}
+  } catch(e) {}
 }
 
+/* ════════════════════════════════════════════════
+   INIT
+════════════════════════════════════════════════ */
 window.addEventListener('beforeunload', saveState);
+
+// Build initial pivot order buttons (single-order mode)
+updatePivotOrderButtons();
+
+// Restore previous session
 restoreState();
 </script>
 </body>
