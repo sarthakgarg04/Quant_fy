@@ -197,13 +197,13 @@ def _candles(df: pd.DataFrame) -> list:
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.route("/")
-def page_scanner(): return send_from_directory(FRONTEND_DIR, "index.html")
+def page_scanner(): return send_from_directory(FRONTEND_DIR, "pages/index.html")
 
 @app.route("/trend")
-def page_trend():   return send_from_directory(FRONTEND_DIR, "trend_viewer.html")
+def page_trend():   return send_from_directory(FRONTEND_DIR, "pages/trend_viewer.html")
 
 @app.route("/data")
-def page_data():    return send_from_directory(FRONTEND_DIR, "data_fetch.html")
+def page_data():    return send_from_directory(FRONTEND_DIR, "pages/data_fetch.html")
 
 @app.route("/<path:filename>")
 def static_files(filename): return send_from_directory(FRONTEND_DIR, filename)

@@ -1,0 +1,46 @@
+/* ═══════════════════════════════════════════════════════════════
+   tokens.css — single source of truth for all design variables
+   All other CSS files import from here via cascade.
+   Never define --variables anywhere else.
+═══════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Surfaces */
+  --bg:       #0d0f12;
+  --surface:  #161a20;
+  --s2:       #1e2530;
+  --s3:       #252d3a;
+  --s4:       #2d3748;
+
+  /* Borders */
+  --border:   #2a3040;
+  --border2:  #3a4555;
+
+  /* Text */
+  --text:     #e2e8f0;
+  --muted:    #8892a0;
+  --muted2:   #5a6470;
+
+  /* Brand */
+  --accent:   #3b82f6;
+  --accentd:  #2563eb;
+  --green:    #22c55e;
+  --greend:   #16a34a;
+  --red:      #ef4444;
+  --redd:     #dc2626;
+  --amber:    #f59e0b;
+  --purple:   #a78bfa;
+  --teal:     #2dd4bf;
+
+  /* Layout */
+  --nav-h:    50px;
+  --sb-w:     300px;
+
+  /* Shape */
+  --r:        6px;
+  --r2:       8px;
+
+  /* Typography */
+  --font:     'Inter', system-ui, -apple-system, sans-serif;
+  --mono:     'IBM Plex Mono', ui-monospace, 'Cascadia Code', monospace;
+}

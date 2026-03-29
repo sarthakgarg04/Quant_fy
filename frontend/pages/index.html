@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Scanner – QuantScanner</title>
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/components.css">
+<link rel="stylesheet" href="/css/layout.css">
+</head>
+<body>
+
+<!-- NAV (populated by Scanner.init → QS.renderNav) -->
+<nav id="qs-nav"></nav>
+
+<!-- DRAWER OVERLAY -->
+<div id="dov" onclick="Scanner.closeDrawer()"></div>
+
+<!-- APP -->
+<div id="app">
+
+  <!-- ═══ SIDEBAR ═══ -->
+  <aside id="sidebar">
+    <div class="sb-header">
+      <span class="sb-title">Filters</span>
+      <button class="sb-tog" onclick="Scanner.toggleSB()" title="Toggle sidebar">
+        <span class="sb-arr">◀</span>
+      </button>
+    </div>
+    <div id="sb-scroll">
+
+      <div>
+        <div class="slbl">Direction</div>
+        <div class="seg" id="dir-seg">
+          <button class="seg-btn buy"  data-v="buy"  onclick="Scanner.setDir(this)">▲ Buy Zones</button>
+          <button class="seg-btn"      data-v="sell" onclick="Scanner.setDir(this)">▼ Sell Zones</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="slbl">Timeframe</div>
+        <div class="tfc-row" id="tfc-row">
+          <button class="tfc on" data-v="1d"  onclick="Scanner.setTFC(this)">1D</button>
+          <button class="tfc"    data-v="1wk" onclick="Scanner.setTFC(this)">1W</button>
+          <button class="tfc"    data-v="1h"  onclick="Scanner.setTFC(this)">1H</button>
+          <button class="tfc"    data-v="4h"  onclick="Scanner.setTFC(this)">4H</button>
+          <button class="tfc"    data-v="15m" onclick="Scanner.setTFC(this)">15m</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="slbl">Zone Strategy</div>
+        <select id="strat" class="ctrl">
+          <option value="atr">ATR Body (RBR + DBR)</option>
+          <option value="consolidation">Consolidation (Volume)</option>
+          <option value="both">Both Methods</option>
+        </select>
+      </div>
+
+      <div>
+        <div class="slbl">Parameters</div>
+        <div style="display:flex;gap:6px">
+          <div class="field" style="flex:1">
+            <span class="ctrl-label">Pivot Order</span>
+            <div class="stpw">
+              <button class="stpb" onclick="Scanner.stp('order',-1)">−</button>
+              <input type="number" id="order" value="5" min="1" max="30">
+              <button class="stpb" onclick="Scanner.stp('order',1)">+</button>
+            </div>
+          </div>
+          <div class="field" style="flex:1">
+            <span class="ctrl-label">Lookback</span>
+            <div class="stpw">
+              <button class="stpb" onclick="Scanner.stp('zlb',-5)">−</button>
+              <input type="number" id="zlb" value="20" min="5" max="500">
+              <button class="stpb" onclick="Scanner.stp('zlb',5)">+</button>
+            </div>
+          </div>
+        </div>
+        <div class="field" style="margin-top:6px">
+          <span class="ctrl-label">Legout × ATR</span>
+          <div class="stpw">
+            <button class="stpb" onclick="Scanner.stp('legout',-0.05)">−</button>
+            <input type="number" id="legout" value="1.35" step="0.05" min="0.5" max="5">
+            <button class="stpb" onclick="Scanner.stp('legout',0.05)">+</button>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="slbl">Trend Filter</div>
+        <div class="tdw">
+          <button class="trig" id="ttrig" onclick="Scanner.toggleTDD(event)">
+            <span id="tlbl">All trends</span>
+            <span class="tarr">▼</span>
+          </button>
+          <div class="tdd" id="tdd">
+            <div style="padding:7px 12px;border-bottom:1px solid var(--border)">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--accent);font-family:var(--mono)">
+                <input type="checkbox" id="all-t" checked onchange="Scanner.allTrends(this)"> All trends
+              </label>
+            </div>
+            <div class="tdg">Bullish</div>
+            <div class="tdo"><input type="checkbox" class="tc" value="strong_uptrend"      checked><span>Strong uptrend</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="continuous_uptrend"  checked><span>Continuous uptrend</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="up"                  checked><span>Up</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="semi-up"             checked><span>Semi-up</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="weakening_uptrend"   checked><span>Weakening uptrend</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="bullish_mitigation"  checked><span>Bullish mitigation</span></div>
+            <div class="tdg" style="margin-top:4px">Neutral</div>
+            <div class="tdo"><input type="checkbox" class="tc" value="consolidate"         checked><span>Consolidate</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="flat_consolidation"  checked><span>Flat consolidation</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="deep_consolidation"  checked><span>Deep consolidation</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="sw"                  checked><span>SW sideways</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="expanding_structure" checked><span>Expanding structure</span></div>
+            <div class="tdg" style="margin-top:4px">Bearish</div>
+            <div class="tdo"><input type="checkbox" class="tc" value="weakening_downtrend" checked><span>Weakening downtrend</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="down"                checked><span>Down</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="continuous_downtrend"checked><span>Continuous downtrend</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="strong_downtrend"    checked><span>Strong downtrend</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="transitioning"       checked><span>Transitioning</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Multi-Order -->
+      <div>
+        <div class="slbl">Multi-Order</div>
+        <div class="moc">
+          <div class="moh-row">
+            <label class="motog" onclick="event.stopPropagation()">
+              <input type="checkbox" id="moen" onchange="Scanner.toggleMO(this.checked)">
+              <span class="mos"></span>
+            </label>
+            <span class="mobl">Multi-Order Analysis</span>
+          </div>
+          <div class="mob hid" id="mob">
+            <div class="molv">
+              <span class="molk moH">HIGH</span>
+              <div class="field"><span class="ctrl-label">Order</span>
+                <input type="number" id="moh" class="ctrl" value="20" style="padding:5px 8px;font-size:11px"></div>
+              <div class="field"><span class="ctrl-label">Trend</span>
+                <select id="moht" class="ctrl" style="padding:5px 8px;font-size:11px">
+                  <option value="any">Any</option><option value="any_uptrend">Any uptrend</option>
+                  <option value="strong_uptrend">Strong</option><option value="up">Up</option>
+                  <option value="any_downtrend">Any downtrend</option><option value="any_neutral">Neutral</option>
+                </select>
+              </div>
+            </div>
+            <div class="molv">
+              <span class="molk moM">MID</span>
+              <div class="field"><span class="ctrl-label">Order</span>
+                <input type="number" id="mom" class="ctrl" value="10" style="padding:5px 8px;font-size:11px"></div>
+              <div class="field"><span class="ctrl-label">Trend</span>
+                <select id="momt" class="ctrl" style="padding:5px 8px;font-size:11px">
+                  <option value="any">Any</option><option value="any_uptrend">Any uptrend</option>
+                  <option value="strong_uptrend">Strong</option><option value="up">Up</option>
+                  <option value="any_downtrend">Any downtrend</option><option value="any_neutral">Neutral</option>
+                </select>
+              </div>
+            </div>
+            <div class="molv">
+              <span class="molk moL">LOW</span>
+              <div class="field"><span class="ctrl-label">Order</span>
+                <input type="number" id="mol" class="ctrl" value="5" style="padding:5px 8px;font-size:11px"></div>
+              <div class="field"><span class="ctrl-label">Trend</span>
+                <select id="molt" class="ctrl" style="padding:5px 8px;font-size:11px">
+                  <option value="any">Any</option><option value="any_uptrend">Any uptrend</option>
+                  <option value="strong_uptrend">Strong</option><option value="up">Up</option>
+                  <option value="any_downtrend">Any downtrend</option><option value="any_neutral">Neutral</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <button class="scan-btn" id="scanbtn" onclick="Scanner.runScan()">▶  Run Scan</button>
+
+    </div><!-- sb-scroll -->
+  </aside>
+
+  <!-- ═══ RESULTS PANEL ═══ -->
+  <div id="rp">
+    <div class="rph">
+      <span class="rptit">Scan Results</span>
+      <span class="rpcnt" id="rcnt">—</span>
+      <div class="rpsrt">
+        <button class="srtb on" id="s-age" onclick="Scanner.sortBy('bars_ago')"  title="Sort by recency">⏱</button>
+        <button class="srtb"    id="s-atr" onclick="Scanner.sortBy('atr_pct')"   title="Sort by ATR">σ</button>
+      </div>
+    </div>
+    <div class="rpcols">
+      <span class="rpcol">Stock</span>
+      <span class="rpcol">Price</span>
+      <span class="rpcol">Zone</span>
+    </div>
+    <div id="rlist">
+      <div class="empty-st">
+        <div class="e-ico">📊</div>
+        <div class="e-txt">Press Scan to find zones</div>
+        <div class="e-sub">Configure filters → Run Scan</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ CHART PANEL ═══ -->
+  <div id="cp">
+    <div class="cph">
+      <span class="cptk" id="cptk">—</span>
+      <span class="cppr" id="cppr"></span>
+      <span id="cptr" class="tbadge t-co" style="display:none"></span>
+      <div class="pivot-ctrl" id="pivot-ctrl">
+        <span class="pivot-ctrl-lbl">Pivots:</span>
+        <div class="pivot-order-group" id="pivot-order-btns"></div>
+      </div>
+      <div class="tfg" style="margin-left:8px">
+        <button class="tfb on" onclick="Scanner.setChartTF('1d',this)">1D</button>
+        <button class="tfb"    onclick="Scanner.setChartTF('1wk',this)">1W</button>
+        <button class="tfb"    onclick="Scanner.setChartTF('1h',this)">1H</button>
+      </div>
+    </div>
+    <div class="cpleg">
+      <span class="li"><span class="ld" style="background:#ef4444"></span>Top pivot</span>
+      <span class="li"><span class="ld" style="background:#22c55e"></span>Bottom pivot</span>
+      <span class="li"><span class="lr" style="background:rgba(34,197,94,.2);border:1px solid #22c55e"></span>RBR</span>
+      <span class="li"><span class="lr" style="background:rgba(45,212,191,.2);border:1px solid #2dd4bf"></span>DBR</span>
+      <span class="li"><span class="lr" style="background:rgba(167,139,250,.2);border:1px solid #a78bfa"></span>Consol.</span>
+      <span class="li"><span class="lr" style="background:rgba(100,100,100,.15);border:1px dashed #666"></span>Invalidated</span>
+      <span class="li" id="pivot-order-legend" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--muted)"></span>
+    </div>
+    <div id="cw">
+      <div class="empty-st"><div class="e-ico">📈</div><div class="e-txt">Select a stock to view chart</div></div>
+      <div id="cload" style="position:absolute;inset:0;z-index:50;background:rgba(13,15,18,.75);display:none;align-items:center;justify-content:center">
+        <div class="spinner spinner-lg"></div>
+      </div>
+    </div>
+    <div class="cpmet">
+      <div class="met"><div class="ml">ATR %</div>     <div class="mv" id="m1">—</div></div>
+      <div class="met"><div class="ml">Trend Str.</div> <div class="mv" id="m2">—</div></div>
+      <div class="met"><div class="ml">Zones</div>      <div class="mv" id="m3">—</div></div>
+      <div class="met"><div class="ml">Zone Age</div>   <div class="mv" id="m4">—</div></div>
+      <div class="met"><div class="ml">Pivots</div>     <div class="mv" id="m5">—</div></div>
+      <div class="met"><div class="ml">Velocity</div>   <div class="mv" id="m6">—</div></div>
+      <div class="met"><div class="ml">Leg Ratio</div>  <div class="mv" id="m7">—</div></div>
+      <div class="met"><div class="ml">Amplitude</div>  <div class="mv" id="m8">—</div></div>
+    </div>
+  </div>
+
+</div><!-- app -->
+
+<!-- DETAIL DRAWER -->
+<div id="dw">
+  <div class="dwh">
+    <div style="flex:1">
+      <div class="dwtk" id="dwtk">—</div>
+      <div class="dwsb" id="dwsb">—</div>
+    </div>
+    <div class="dwpr" id="dwpr"></div>
+    <span id="dwtr" class="tbadge t-co" style="margin-top:3px"></span>
+    <button class="dwcl" onclick="Scanner.closeDrawer()">✕</button>
+  </div>
+  <div id="dws"></div>
+</div>
+
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<script src="/js/shared.js"></script>
+<script src="/js/api.js"></script>
+<script src="/js/chart.js"></script>
+<script src="/js/scanner.js"></script>
+</body>
+</html>

@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Data Fetch – QuantScanner</title>
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/components.css">
+<link rel="stylesheet" href="/css/layout.css">
+</head>
+<body>
+
+<nav id="qs-nav"></nav>
+
+<div class="df-main">
+
+  <!-- ── LEFT: controls ── -->
+  <div class="df-left">
+
+    <!-- Auth -->
+    <div class="df-sec">
+      <div class="slbl" style="margin-bottom:10px">Upstox Authentication</div>
+      <div class="auth-box" id="auth-box">
+        <div class="auth-icon" id="auth-icon">🔒</div>
+        <div>
+          <div class="auth-name" id="auth-name">Not authenticated</div>
+          <div class="auth-sub"  id="auth-sub">Token required for Upstox source</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
+        <button class="btn btn-primary btn-sm" onclick="DataFetch.doOAuth()">🔑 OAuth Login</button>
+        <button class="btn btn-ghost   btn-sm" onclick="DataFetch.togglePaste()">Paste Token</button>
+        <button class="btn btn-danger  btn-sm" id="logout-btn" style="display:none" onclick="DataFetch.clearToken()">Logout</button>
+      </div>
+      <div id="paste-area" style="display:none;margin-top:10px">
+        <textarea id="token-inp" class="ctrl token-area" placeholder="Paste Upstox access_token…"></textarea>
+        <button class="btn btn-primary btn-sm" style="margin-top:6px;width:100%" onclick="DataFetch.pasteToken()">💾 Save Token</button>
+      </div>
+    </div>
+
+    <!-- Source -->
+    <div class="df-sec">
+      <div class="slbl" style="margin-bottom:8px">Data Source</div>
+      <div class="src-toggle">
+        <button class="src-btn active" id="src-up" onclick="DataFetch.setSource('upstox')">Upstox API</button>
+        <button class="src-btn"        id="src-yf" onclick="DataFetch.setSource('yfinance')">yfinance</button>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:6px" id="src-hint">Primary source. Requires valid Upstox token.</div>
+    </div>
+
+    <!-- Timeframe -->
+    <div class="df-sec">
+      <div class="slbl" style="margin-bottom:8px">Timeframe</div>
+      <div class="tf-pills">
+        <button class="tf-pill active" data-tf="1d"  onclick="DataFetch.selTF(this)">Daily 1D</button>
+        <button class="tf-pill"        data-tf="1wk" onclick="DataFetch.selTF(this)">Weekly 1W</button>
+        <button class="tf-pill"        data-tf="1h"  onclick="DataFetch.selTF(this)">1 Hour</button>
+        <button class="tf-pill"        data-tf="4h"  onclick="DataFetch.selTF(this)">4 Hour</button>
+        <button class="tf-pill"        data-tf="15m" onclick="DataFetch.selTF(this)">15 Min</button>
+        <button class="tf-pill"        data-tf="5m"  onclick="DataFetch.selTF(this)">5 Min</button>
+      </div>
+    </div>
+
+    <!-- Universe -->
+    <div class="df-sec" id="univ-sec">
+      <div class="slbl" style="margin-bottom:6px">Universe (Upstox)</div>
+      <select id="univ-sel" class="ctrl">
+        <option value="NSE_EQ">NSE Equity</option>
+        <option value="BSE_EQ">BSE Equity</option>
+        <option value="NSE_EQ,BSE_EQ">NSE + BSE</option>
+      </select>
+    </div>
+    <div class="df-sec" id="wl-sec" style="display:none">
+      <div class="slbl" style="margin-bottom:6px">Watchlist (yfinance)</div>
+      <select id="wl-sel" class="ctrl">
+        <option value="nifty50">Nifty 50</option>
+        <option value="next50">Nifty Next 50</option>
+        <option value="midcap">Midcap</option>
+        <option value="all_nifty">All Nifty</option>
+      </select>
+    </div>
+
+    <!-- Force refresh -->
+    <div class="df-sec" style="display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div class="slbl" style="margin-bottom:0">Force Re-fetch</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">Bypass local cache</div>
+      </div>
+      <input type="checkbox" id="force-chk" style="width:17px;height:17px;cursor:pointer;accent-color:var(--accent)">
+    </div>
+
+    <!-- Fetch button + cancel -->
+    <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px">
+      <button class="btn btn-primary" style="flex:1;padding:9px" id="fetch-btn" onclick="DataFetch.startFetch()">▶ Start Fetch</button>
+      <button class="btn btn-danger btn-sm" id="cancel-btn" onclick="DataFetch.cancelFetch()">✕ Cancel</button>
+    </div>
+
+    <!-- Progress -->
+    <div style="padding:14px 16px;flex:1;display:flex;flex-direction:column;gap:10px;min-height:0">
+
+      <div class="reconnect-banner" id="reconnect-banner">
+        <span style="font-size:16px">🔄</span>
+        <div>
+          <div style="font-weight:600;font-size:12px">Fetch in progress</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:1px">Reconnected to running task.</div>
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="slbl" style="margin-bottom:0" id="prog-title">Ready</span>
+          <span class="live-pill" id="live-pill"><span class="live-dot"></span>Live</span>
+        </div>
+        <span id="prog-count" style="font-size:11px;color:var(--muted);font-family:var(--mono)"></span>
+      </div>
+
+      <div class="prog-outer"><div class="prog-inner" id="prog-bar"></div></div>
+      <div class="prog-log" id="prog-log"></div>
+    </div>
+
+  </div><!-- df-left -->
+
+  <!-- ── RIGHT: store browser ── -->
+  <div class="df-right">
+    <div class="store-header">
+      <span style="font-size:15px;font-weight:700">📦 Local Data Store</span>
+      <div style="margin-left:auto;display:flex;gap:5px;flex-wrap:wrap" id="itv-tabs"></div>
+      <button class="btn btn-ghost btn-sm" onclick="DataFetch.refreshStore()">↻ Refresh</button>
+    </div>
+    <div class="store-stats">
+      <div><div class="ss-l">Total Symbols</div><div class="ss-v" id="ss-tot">–</div></div>
+      <div><div class="ss-l">Storage Used</div><div class="ss-v" id="ss-mb">–</div></div>
+      <div><div class="ss-l">Timeframes</div><div class="ss-v" id="ss-ivs">–</div></div>
+      <div><div class="ss-l">Cache Path</div><div class="ss-v" style="font-size:11px;font-family:var(--mono)">data_store/</div></div>
+    </div>
+    <div class="store-scroll" id="store-body">
+      <div class="empty-st" style="padding:60px 0">
+        <div class="e-ico">🗄</div>
+        <div class="e-txt">No data fetched yet</div>
+        <div class="e-sub">Use the controls on the left to fetch data</div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- df-main -->
+
+<script src="/js/shared.js"></script>
+<script src="/js/api.js"></script>
+<script src="/js/data.js"></script>
+</body>
+</html>
