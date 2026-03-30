@@ -538,7 +538,9 @@ def _trend(ticker, params):
         return jsonify({"error": "ticker required"}), 400
 
     interval    = params.get("interval",          "1d")
-    days        = int(params.get("days",           500))
+    _day_defaults = {"1m": 7, "5m": 30, "15m": 30, "1h": 90, "4h": 90}
+    _default_days = _day_defaults.get(interval, 500)
+    days = int(params.get("days", _default_days))
     order       = int(params.get("order",          5))
     min_str_pct = float(params.get("min_strength_pct", 0))
     atr_mult    = float(params.get("atr_mult",     0.0))

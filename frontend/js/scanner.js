@@ -553,23 +553,20 @@ const Scanner = (() => {
   /* ════════════════════════════════════════════════════════════
      STOCK SELECTION + CHART LOAD
   ════════════════════════════════════════════════════════════ */
-  async function selStock(i) {
+  async function selStock(i, fromTFButton = false) {
     const row = rows[i];
     if (!row) {
       API.logEvent('warn', 'scanner', 'selStock: invalid index', { i, rowsLen: rows.length });
       return;
     }
 
-
-    // When a scan runs on 15m, the chart should open on 15m, not the
-    // hardcoded '1d'. chartTF only diverges if the user explicitly clicks
-    // a chart TF button (1D/1W/1H) AFTER a stock is already selected.
-    // This syncs it on the initial click from scan results.
-    if (!currentRow) {
+    // Sync chartTF to scan TF only on first click from results list.
+    // NOT when called from setChartTF (fromTFButton=true) — that would
+    // overwrite the user's explicit TF button choice back to the scan TF.
+    if (!currentRow && !fromTFButton) {
       const scanTF = getScanTF();
       if (chartTF !== scanTF) {
         chartTF = scanTF;
-        // Update chart header button highlighting to match
         document.querySelectorAll('.tfg .tfb').forEach(b =>
           b.classList.toggle('on', b.dataset.tf === chartTF)
         );
@@ -652,7 +649,7 @@ const Scanner = (() => {
     // Instead: clear currentRow so the guard is bypassed, then call selStock().
     if (activeIdx >= 0 && rows[activeIdx]) {
       currentRow = null;        // ← force guard bypass in selStock
-      selStock(activeIdx);
+      selStock(activeIdx, true); ;
     } else {
       API.logEvent('warn', 'scanner', 'TF changed but no active symbol', { tf });
     }

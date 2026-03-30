@@ -66,6 +66,15 @@ DAYS_LOOKBACK: Dict[str, int] = {
     "1wk": 2000,
 }
 
+UPSTOX_MAX_DAYS_PER_CALL: Dict[str, int] = {
+    "1m":  15,    
+    "5m":  30,   # 30 days, within 31-day limit
+    "15m": 30,   # 1 month max
+    "1h":  90,
+    "4h":  90,
+    "1d":  700,
+    "1wk": 2000,
+}
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Token helpers
@@ -471,8 +480,13 @@ def fetch_ohlcv(
     instrument_key is auto-resolved from ticker symbol if not provided.
     Always writes result back to data_store/.
     """
-    end_str   = end   or dt.datetime.now().strftime("%Y-%m-%d")
-    _days     = days  or DAYS_LOOKBACK.get(interval, 500)
+
+    end_str = end or dt.datetime.now().strftime("%Y-%m-%d")
+
+    # Cap lookback to what Upstox allows per call for this interval
+    _max   = UPSTOX_MAX_DAYS_PER_CALL.get(interval, 700)
+    _days  = min(days or DAYS_LOOKBACK.get(interval, 500), _max)
+
     start_str = start or (dt.datetime.now() - dt.timedelta(days=_days)).strftime("%Y-%m-%d")
 
     # 1. Local store
@@ -602,7 +616,8 @@ def fetch_upstox_batch_iter(
     Yields (done, total, symbol, ok) for SSE streaming.
     Processes in batches of batch_size to avoid overwhelming Upstox API.
     """
-    _days     = DAYS_LOOKBACK.get(interval, 700)
+    _max      = UPSTOX_MAX_DAYS_PER_CALL.get(interval, 700)
+    _days     = min(DAYS_LOOKBACK.get(interval, 700), _max)
     end_str   = dt.datetime.now().strftime("%Y-%m-%d")
     start_str = (dt.datetime.now() - dt.timedelta(days=_days)).strftime("%Y-%m-%d")
     sym_map   = instrument_key_to_symbol()

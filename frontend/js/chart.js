@@ -210,7 +210,7 @@ const Chart = (() => {
     const seq = _seq;
 
     if (!moEnabled) {
-      _pivotSeries['single'] = _addPivotSeries(d.pivots || [], '#3b82f6', 'single');
+      _pivotSeries['single'] = _addPivotSeries(d.pivots || [], '#3b82f6', 'single', seq);
     } else {
       const OH = parseInt(params.order_high) || 20;
       const OM = parseInt(params.order_mid)  || 10;
@@ -224,15 +224,15 @@ const Chart = (() => {
       ]);
       if (seq !== _seq) return;
 
-      _pivotSeries['H'] = _addPivotSeries(pvH.length ? pvH : (d.pivots||[]), '#7c3aed', 'H');
-      _pivotSeries['M'] = _addPivotSeries(pvM.length ? pvM : (d.pivots||[]), '#1d4ed8', 'M');
-      _pivotSeries['L'] = _addPivotSeries(pvL.length ? pvL : (d.pivots||[]), '#16a34a', 'L');
+      _pivotSeries['H'] = _addPivotSeries(pvH.length ? pvH : (d.pivots||[]), '#7c3aed', 'H', seq);
+      _pivotSeries['M'] = _addPivotSeries(pvM.length ? pvM : (d.pivots||[]), '#1d4ed8', 'M', seq);
+      _pivotSeries['L'] = _addPivotSeries(pvL.length ? pvL : (d.pivots||[]), '#16a34a', 'L', seq);
     }
     _applyVisibility();
   }
 
   /* ── _addPivotSeries ─────────────────────────────────────── */
-  function _addPivotSeries(pivots, color, levelKey) {
+  function _addPivotSeries(pivots, color, levelKey, loadSeq) {
     if (!_chart) return [];
 
     const clean = _sanitise(
@@ -276,6 +276,11 @@ const Chart = (() => {
       if (markers.length) s.setMarkers(markers);
     } catch (e) { console.warn('[pivots] setMarkers:', levelKey, e.message); }
 
+    if (loadSeq !== undefined && loadSeq !== _seq) {
+      try { _chart && _chart.removeSeries(s); } catch(_) {}
+      _pivotSeries[levelKey] = [];
+      return [];
+    }
     _xtra.push(s);
     _pivotSeries[levelKey] = [s];
     return [s];
@@ -285,8 +290,11 @@ const Chart = (() => {
   async function _fetchPivots(ticker, tf, order) {
     const key = `${ticker}|${tf}|${order}`;
     if (_cache[key]) return _cache[key];
+    // Use interval-appropriate lookback — avoids UDAPI1148 on 1m/5m
+    const _dayMap = { '1m': 7, '5m': 30, '15m': 30, '1h': 90, '4h': 90 };
+    const days = _dayMap[tf] || 500;
     try {
-      const data = await API.trendData(ticker, { interval: tf, order, days: 500 });
+      const data = await API.trendData(ticker, { interval: tf, order, days });
       _cache[key] = data.pivots || [];
       return _cache[key];
     } catch(_) { return []; }
