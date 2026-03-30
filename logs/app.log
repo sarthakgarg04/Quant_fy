@@ -9339,3 +9339,7 @@
 [2026-03-30 23:21:49.094] [WARNING] [__main__        ] Upstox symbol failed | sym=UWCSL interval=1m error=no data returned
 [2026-03-30 23:21:57.686] [WARNING] [__main__        ] Upstox symbol failed | sym=WALPAR interval=1m error=no data returned
 [2026-03-30 23:22:06.385] [WARNING] [__main__        ] Upstox symbol failed | sym=CMPDI interval=1m error=no data returned
+[2026-03-30 23:22:13.912] [WARNING] [__main__        ] Upstox symbol failed | sym=TIL-RE1 interval=1m error=no data returned
+[2026-03-30 23:22:20.452] [WARNING] [__main__        ] Upstox symbol failed | sym=MINDPOOL interval=1m error=no data returned
+[2026-03-30 23:23:07.975] [WARNING] [__main__        ] Upstox symbol failed | sym=DRSCARGO interval=1m error=no data returned
+[2026-03-30 23:23:46.178] [WARNING] [__main__        ] Upstox symbol failed | sym=KALYANI interval=1m error=no data returned
