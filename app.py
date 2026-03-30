@@ -15,6 +15,8 @@ Key change vs v3.0:
 from __future__ import annotations
 import sys, os, json, time, threading, uuid
 
+from algos.trend_analysis import STATE_GROUPS, STATE_LABELS
+
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 
@@ -221,55 +223,107 @@ def health(): return jsonify({"status": "ok", "version": "3.1"})
 # Scanner
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @app.route("/api/scan")
 def scan():
-    direction     = request.args.get("direction",      "buy")
-    interval      = request.args.get("interval",       "1d")
-    order         = int(request.args.get("order",      5))
-    zone_lookback = int(request.args.get("zone_lookback", 20))
+    direction     = request.args.get("direction",       "buy")
+    interval      = request.args.get("interval",        "1d")
+    order         = int(request.args.get("order",       5))
+    zone_lookback = int(request.args.get("zone_lookback",  20))
     legout_mult   = float(request.args.get("legout_mult",  1.35))
-    trend_filter  = request.args.get("trend_filter",   "")
-    strategy      = request.args.get("strategy",       "atr")
+    trend_filter  = request.args.get("trend_filter",    "")
+    strategy      = request.args.get("strategy",        "atr")
     multi_order   = request.args.get("multi_order",  "false").lower() == "true"
-    order_low     = int(request.args.get("order_low",  5))
-    order_mid     = int(request.args.get("order_mid",  10))
-    order_high    = int(request.args.get("order_high", 20))
-    trend_low     = request.args.get("trend_low",  "any")
-    trend_mid     = request.args.get("trend_mid",  "any")
-    trend_high    = request.args.get("trend_high", "any")
-
+    order_low     = int(request.args.get("order_low",   5))
+    order_mid     = int(request.args.get("order_mid",   10))
+    order_high    = int(request.args.get("order_high",  20))
+ 
+    # ATR zone sub-type filter
+    atr_zone_types_raw = request.args.get("atr_zone_types", "").strip()
+    atr_zone_types = (
+        [t.strip() for t in atr_zone_types_raw.split(",") if t.strip()]
+        if atr_zone_types_raw else None
+    )
+ 
+    # Structure state filters (replace trend_low/mid/high)
+    def _parse_states(param: str) -> list:
+        raw = request.args.get(param, "").strip()
+        return [s.strip() for s in raw.split(",") if s.strip()] if raw else []
+ 
+    structure_low  = _parse_states("structure_low")
+    structure_mid  = _parse_states("structure_mid")
+    structure_high = _parse_states("structure_high")
+    alignment_filter = request.args.get("alignment_filter", "any")
+ 
     tf_list = [t.strip() for t in trend_filter.split(",") if t.strip()] or None
-
+ 
     stored = list_stored(interval)
     if not stored:
-        return jsonify({"results": [], "count": 0,
-                        "error": f"No data stored for interval '{interval}'."})
-
+        return jsonify({
+            "results": [], "count": 0,
+            "error": f"No data stored for interval '{interval}'."
+        })
+ 
     data_d = {}
     for item in stored:
         sym = item["symbol"]
         df  = load_stored_df(sym, interval)
         if df is not None and not df.empty:
             data_d[sym] = df
-
+ 
     if not data_d:
         return jsonify({"results": [], "count": 0})
-
+ 
     df_res = scan_watchlist(
-        tickers=list(data_d.keys()), data_dict=data_d,
-        order=order, zone_lookback=zone_lookback,
-        direction=direction, trend_filter=tf_list,
-        legout_mult=legout_mult, strategy=strategy,
+        tickers=list(data_d.keys()),
+        data_dict=data_d,
+        order=order,
+        zone_lookback=zone_lookback,
+        direction=direction,
+        trend_filter=tf_list,
+        legout_mult=legout_mult,
+        strategy=strategy,
+        atr_zone_types=atr_zone_types,
         multi_order=multi_order,
-        order_low=order_low, order_mid=order_mid, order_high=order_high,
-        trend_low=trend_low, trend_mid=trend_mid, trend_high=trend_high,
+        order_low=order_low,
+        order_mid=order_mid,
+        order_high=order_high,
+        structure_filter_low=structure_low   or None,
+        structure_filter_mid=structure_mid   or None,
+        structure_filter_high=structure_high or None,
+        alignment_filter=alignment_filter,
     )
-
+ 
     if df_res.empty:
         return jsonify({"results": [], "count": 0})
-
+ 
     records = [_sr(r) for r in df_res.to_dict(orient="records")]
     return jsonify({"results": records, "count": len(records)})
+
+
+@app.route("/api/structure_states")
+def structure_states():
+    """
+    Returns state groups and labels for the frontend dropdowns.
+    The frontend calls this once on load to populate the structure
+    filter multi-selects without hardcoding state strings in JS.
+    """
+    from algos.trend_analysis import STATE_GROUPS, STATE_LABELS
+    return jsonify({
+        "groups": {
+            group: [
+                {"value": state, "label": STATE_LABELS[state]}
+                for state in states
+            ]
+            for group, states in STATE_GROUPS.items()
+        },
+        "all": [
+            {"value": s, "label": STATE_LABELS[s]}
+            for s in STATE_LABELS
+            if s != "no_structure"
+        ],
+    })
+ 
 
 
 @app.route("/api/symbols")

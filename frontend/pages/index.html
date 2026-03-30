@@ -10,13 +10,9 @@
 </head>
 <body>
 
-<!-- NAV (populated by Scanner.init → QS.renderNav) -->
 <nav id="qs-nav"></nav>
-
-<!-- DRAWER OVERLAY -->
 <div id="dov" onclick="Scanner.closeDrawer()"></div>
 
-<!-- APP -->
 <div id="app">
 
   <!-- ═══ SIDEBAR ═══ -->
@@ -29,6 +25,7 @@
     </div>
     <div id="sb-scroll">
 
+      <!-- Direction -->
       <div>
         <div class="slbl">Direction</div>
         <div class="seg" id="dir-seg">
@@ -37,6 +34,7 @@
         </div>
       </div>
 
+      <!-- Timeframe -->
       <div>
         <div class="slbl">Timeframe</div>
         <div class="tfc-row" id="tfc-row">
@@ -48,15 +46,50 @@
         </div>
       </div>
 
+      <!-- Strategy -->
       <div>
         <div class="slbl">Zone Strategy</div>
-        <select id="strat" class="ctrl">
+        <select id="strat" class="ctrl" onchange="Scanner.onStrategyChange()">
           <option value="atr">ATR Body (RBR + DBR)</option>
           <option value="consolidation">Consolidation (Volume)</option>
           <option value="both">Both Methods</option>
+          <option value="trend_only">Trend Only (no zone)</option>
         </select>
+        <!-- ATR sub-type -->
+        <div id="atr-sub-row" style="display:flex;gap:10px;margin-top:8px;padding:8px 10px;
+             background:var(--s2);border:1px solid var(--border);border-radius:var(--r2);
+             flex-wrap:wrap">
+          <span style="font-size:10px;font-family:var(--mono);color:var(--muted2);
+                text-transform:uppercase;letter-spacing:.8px;align-self:center;flex-shrink:0">
+            Types:
+          </span>
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;font-family:var(--mono)">
+            <input type="checkbox" id="atr-rbr" checked style="accent-color:#22c55e">
+            <span style="color:#22c55e;font-weight:600">RBR</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;font-family:var(--mono)">
+            <input type="checkbox" id="atr-dbr" checked style="accent-color:#2dd4bf">
+            <span style="color:#2dd4bf;font-weight:600">DBR</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;font-family:var(--mono)" id="atr-dbd-wrap">
+            <input type="checkbox" id="atr-dbd" checked style="accent-color:#ef4444">
+            <span style="color:#ef4444;font-weight:600">DBD</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;font-family:var(--mono)" id="atr-rbd-wrap">
+            <input type="checkbox" id="atr-rbd" checked style="accent-color:#f97316">
+            <span style="color:#f97316;font-weight:600">RBD</span>
+          </label>
+        </div>
+        <!-- Trend-only notice -->
+        <div id="trend-only-notice" style="display:none;margin-top:8px;padding:8px 10px;
+             background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.25);
+             border-radius:var(--r2);font-size:11px;color:var(--muted);line-height:1.5">
+          📈 <strong style="color:var(--accent)">Trend Only</strong> — filters by structure
+          state, no zone required.
+        </div>
       </div>
 
+      <!-- Parameters -->
       <div>
         <div class="slbl">Parameters</div>
         <div style="display:flex;gap:6px">
@@ -87,8 +120,9 @@
         </div>
       </div>
 
+      <!-- Trend label filter (legacy pre-filter, optional) -->
       <div>
-        <div class="slbl">Trend Filter</div>
+        <div class="slbl">Trend Label Filter</div>
         <div class="tdw">
           <button class="trig" id="ttrig" onclick="Scanner.toggleTDD(event)">
             <span id="tlbl">All trends</span>
@@ -123,7 +157,21 @@
         </div>
       </div>
 
-      <!-- Multi-Order -->
+      <!-- ════ STRUCTURE STATE FILTER ════
+           Single-order: one dropdown (low only)
+           Multi-order:  three dropdowns (high/mid/low) + alignment
+           Both are rendered dynamically by scanner.js          -->
+      <div>
+        <div class="slbl">Pivot Structure Filter</div>
+
+        <!-- Single-order: rendered here by JS -->
+        <div id="sf-single-wrap"></div>
+
+        <!-- Multi-order: rendered here by JS (hidden until MO enabled) -->
+        <div id="sf-multi-wrap" style="display:none"></div>
+      </div>
+
+      <!-- Multi-Order card -->
       <div>
         <div class="slbl">Multi-Order</div>
         <div class="moc">
@@ -135,41 +183,43 @@
             <span class="mobl">Multi-Order Analysis</span>
           </div>
           <div class="mob hid" id="mob">
-            <div class="molv">
+            <!-- Orders only — trend dropdowns removed, replaced by
+                 the structure filter above                          -->
+            <div class="molv" style="grid-template-columns:40px 1fr">
               <span class="molk moH">HIGH</span>
-              <div class="field"><span class="ctrl-label">Order</span>
-                <input type="number" id="moh" class="ctrl" value="20" style="padding:5px 8px;font-size:11px"></div>
-              <div class="field"><span class="ctrl-label">Trend</span>
-                <select id="moht" class="ctrl" style="padding:5px 8px;font-size:11px">
-                  <option value="any">Any</option><option value="any_uptrend">Any uptrend</option>
-                  <option value="strong_uptrend">Strong</option><option value="up">Up</option>
-                  <option value="any_downtrend">Any downtrend</option><option value="any_neutral">Neutral</option>
-                </select>
+              <div class="field">
+                <span class="ctrl-label">Order</span>
+                <input type="number" id="moh" class="ctrl" value="20"
+                       style="padding:5px 8px;font-size:11px">
               </div>
             </div>
-            <div class="molv">
+            <div class="molv" style="grid-template-columns:40px 1fr">
               <span class="molk moM">MID</span>
-              <div class="field"><span class="ctrl-label">Order</span>
-                <input type="number" id="mom" class="ctrl" value="10" style="padding:5px 8px;font-size:11px"></div>
-              <div class="field"><span class="ctrl-label">Trend</span>
-                <select id="momt" class="ctrl" style="padding:5px 8px;font-size:11px">
-                  <option value="any">Any</option><option value="any_uptrend">Any uptrend</option>
-                  <option value="strong_uptrend">Strong</option><option value="up">Up</option>
-                  <option value="any_downtrend">Any downtrend</option><option value="any_neutral">Neutral</option>
-                </select>
+              <div class="field">
+                <span class="ctrl-label">Order</span>
+                <input type="number" id="mom" class="ctrl" value="10"
+                       style="padding:5px 8px;font-size:11px">
               </div>
             </div>
-            <div class="molv">
+            <div class="molv" style="grid-template-columns:40px 1fr">
               <span class="molk moL">LOW</span>
-              <div class="field"><span class="ctrl-label">Order</span>
-                <input type="number" id="mol" class="ctrl" value="5" style="padding:5px 8px;font-size:11px"></div>
-              <div class="field"><span class="ctrl-label">Trend</span>
-                <select id="molt" class="ctrl" style="padding:5px 8px;font-size:11px">
-                  <option value="any">Any</option><option value="any_uptrend">Any uptrend</option>
-                  <option value="strong_uptrend">Strong</option><option value="up">Up</option>
-                  <option value="any_downtrend">Any downtrend</option><option value="any_neutral">Neutral</option>
-                </select>
+              <div class="field">
+                <span class="ctrl-label">Order</span>
+                <input type="number" id="mol" class="ctrl" value="5"
+                       style="padding:5px 8px;font-size:11px">
               </div>
+            </div>
+            <!-- Alignment filter -->
+            <div class="field" style="margin-top:4px">
+              <span class="ctrl-label">Alignment Required</span>
+              <select id="align-filter" class="ctrl"
+                      style="padding:5px 8px;font-size:11px"
+                      onchange="Scanner._saveUIState && Scanner._saveUIState()">
+                <option value="any">Any</option>
+                <option value="majority_bull">Majority Bullish (2/3)</option>
+                <option value="majority_bear">Majority Bearish (2/3)</option>
+                <option value="all_match">All Match (3/3)</option>
+              </select>
             </div>
           </div>
         </div>
@@ -198,8 +248,8 @@
     <div id="rlist">
       <div class="empty-st">
         <div class="e-ico">📊</div>
-        <div class="e-txt">Press Scan to find zones</div>
-        <div class="e-sub">Configure filters → Run Scan</div>
+        <div class="e-txt">Press Scan to find setups</div>
+        <div class="e-sub">Configure structure filter → Run Scan</div>
       </div>
     </div>
   </div>
@@ -215,9 +265,9 @@
         <div class="pivot-order-group" id="pivot-order-btns"></div>
       </div>
       <div class="tfg" style="margin-left:8px">
-        <button class="tfb on" onclick="Scanner.setChartTF('1d',this)">1D</button>
-        <button class="tfb"    onclick="Scanner.setChartTF('1wk',this)">1W</button>
-        <button class="tfb"    onclick="Scanner.setChartTF('1h',this)">1H</button>
+        <button class="tfb on" data-tf="1d"  onclick="Scanner.setChartTF('1d',this)">1D</button>
+        <button class="tfb"    data-tf="1wk" onclick="Scanner.setChartTF('1wk',this)">1W</button>
+        <button class="tfb"    data-tf="1h"  onclick="Scanner.setChartTF('1h',this)">1H</button>
       </div>
     </div>
     <div class="cpleg">
@@ -227,11 +277,17 @@
       <span class="li"><span class="lr" style="background:rgba(45,212,191,.2);border:1px solid #2dd4bf"></span>DBR</span>
       <span class="li"><span class="lr" style="background:rgba(167,139,250,.2);border:1px solid #a78bfa"></span>Consol.</span>
       <span class="li"><span class="lr" style="background:rgba(100,100,100,.15);border:1px dashed #666"></span>Invalidated</span>
-      <span class="li" id="pivot-order-legend" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--muted)"></span>
+      <span class="li" id="pivot-order-legend"
+            style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--muted)"></span>
     </div>
     <div id="cw">
-      <div class="empty-st"><div class="e-ico">📈</div><div class="e-txt">Select a stock to view chart</div></div>
-      <div id="cload" style="position:absolute;inset:0;z-index:50;background:rgba(13,15,18,.75);display:none;align-items:center;justify-content:center">
+      <div class="empty-st">
+        <div class="e-ico">📈</div>
+        <div class="e-txt">Select a stock to view chart</div>
+      </div>
+      <div id="cload"
+           style="position:absolute;inset:0;z-index:50;background:rgba(13,15,18,.75);
+                  display:none;align-items:center;justify-content:center">
         <div class="spinner spinner-lg"></div>
       </div>
     </div>

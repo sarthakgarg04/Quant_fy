@@ -2,12 +2,16 @@
 pivot_engine.py  –  Pivot detection + multi-order trend engine
 ==============================================================
 
-New in v2:
-  • detect_trend()          — weighted scoring (fixes single-bounce misclassification)
-  • compute_pivot_velocity()— velocity + acceleration per swing leg
-  • compute_pivot_amplitude()— swing sizes, variance, regime detection
-  • compute_leg_ratio()     — bull/bear leg symmetry (trend quality)
-  • detect_trend_multiorder()— runs all three orders, combines with alignment score
+v2.1 fixes (tail pivot section):
+  • tail_start now correctly uses n - order (not n - order*2) so the
+    unconfirmed window is exactly the bars the rolling window cannot see.
+  • Both a Top AND a Bottom can now be appended from the tail — the old
+    code could only ever append one pivot, missing the case where price
+    makes a new high then crashes (or vice versa) all within order bars.
+  • Alternation is enforced AFTER appending via _enforce_alternation on
+    the merged tail candidates, preventing consecutive T→T or B→B.
+  • Tail candidates are compared against the correct reference pivot
+    (same-type predecessor) rather than just cleaned[-1].price.
 """
 
 from __future__ import annotations
@@ -58,12 +62,17 @@ def _local_extremes_vectorised(
 
 
 def _enforce_alternation(raw: PivotList, min_strength: float = 0.0) -> PivotList:
+    """
+    Enforce strict T/B alternation. When two consecutive same-type pivots
+    appear, keep the more extreme one (higher Top, lower Bottom).
+    """
     if not raw:
         return raw
     cleaned: PivotList = [raw[0]]
     for cur_idx, cur_val, cur_type in raw[1:]:
         last_idx, last_val, last_type = cleaned[-1]
         if cur_type == last_type:
+            # Same type — keep more extreme
             if cur_type == "T" and cur_val >= last_val:
                 cleaned[-1] = (cur_idx, cur_val, cur_type)
             elif cur_type == "B" and cur_val <= last_val:
@@ -74,6 +83,125 @@ def _enforce_alternation(raw: PivotList, min_strength: float = 0.0) -> PivotList
     return cleaned
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Tail pivot helper  (replaces the old single-append block)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _append_tail_pivots(
+    cleaned: PivotList,
+    highs: np.ndarray,
+    lows: np.ndarray,
+    order: int,
+    min_strength: float,
+) -> PivotList:
+    """
+    The rolling window with size (2*order+1) and center=True cannot confirm
+    any pivot in the last `order` bars.  This function finds the structurally
+    significant extremes in that unconfirmed tail and appends them while
+    maintaining strict alternation.
+
+    Design rules
+    ────────────
+    1. Search window: bars [n - order, n)  — exactly the unconfirmed tail.
+       We also look back `order` bars before that for context when deciding
+       whether an extreme is more extreme than the last confirmed pivot.
+
+    2. Find the highest High and lowest Low in the tail window.
+
+    3. Determine chronological order: which happened later?
+       - If tail_high comes after tail_low  → sequence is ...Low then High
+       - If tail_low  comes after tail_high → sequence is ...High then Low
+
+    4. Build a candidate list in chronological order, then merge with
+       `cleaned` using _enforce_alternation so no T→T or B→B ever results.
+
+    5. At most 2 tail pivots are added (one T + one B is the maximum
+       meaningful new structure within a single order-window).
+
+    6. A tail pivot is only accepted if:
+       - It would be more extreme than the last confirmed same-type pivot
+         (i.e. a new structural high/low, not a noise wiggle), OR
+       - It alternates from the last confirmed pivot AND exceeds min_strength.
+    """
+    if not cleaned:
+        return cleaned
+
+    n          = len(highs)
+    tail_start = max(0, n - order)          # first unconfirmed bar
+
+    # Nothing to do if the tail window is empty or trivially small
+    if tail_start >= n - 1:
+        return cleaned
+
+    tail_highs = highs[tail_start:]
+    tail_lows  = lows[tail_start:]
+
+    # Absolute extremes in the tail
+    tail_high_val = float(tail_highs.max())
+    tail_low_val  = float(tail_lows.min())
+    # Bar indices are relative to the full array
+    tail_high_idx = int(tail_start + int(tail_highs.argmax()))
+    tail_low_idx  = int(tail_start + int(tail_lows.argmin()))
+
+    # Last confirmed pivots of each type — used for extremity check
+    last_confirmed_top = next(
+        ((i, v) for i, v, t in reversed(cleaned) if t == "T"), None
+    )
+    last_confirmed_bot = next(
+        ((i, v) for i, v, t in reversed(cleaned) if t == "B"), None
+    )
+
+    # Decide whether each tail extreme qualifies as a new structural pivot
+    # A Top qualifies if it is higher than the last confirmed Top
+    # A Bottom qualifies if it is lower than the last confirmed Bottom
+    # If there is no prior same-type pivot, it always qualifies.
+    top_qualifies = (
+        last_confirmed_top is None
+        or tail_high_val > last_confirmed_top[1]
+    )
+    bot_qualifies = (
+        last_confirmed_bot is None
+        or tail_low_val < last_confirmed_bot[1]
+    )
+
+    # Also require the tail extreme to differ from the last pivot by min_strength
+    last_pivot_val = cleaned[-1][1]
+    top_qualifies  = top_qualifies and abs(tail_high_val - last_pivot_val) >= min_strength
+    bot_qualifies  = bot_qualifies and abs(tail_low_val  - last_pivot_val) >= min_strength
+
+    # Build candidate list in chronological order
+    candidates: PivotList = []
+
+    if top_qualifies and bot_qualifies:
+        # Both qualify — order them chronologically
+        if tail_high_idx <= tail_low_idx:
+            # High came first (or same bar — treat as simultaneous, skip Top)
+            if tail_high_idx < tail_low_idx:
+                candidates.append((tail_high_idx, tail_high_val, "T"))
+            candidates.append((tail_low_idx, tail_low_val, "B"))
+        else:
+            # Low came first
+            candidates.append((tail_low_idx,  tail_low_val,  "B"))
+            candidates.append((tail_high_idx, tail_high_val, "T"))
+
+    elif top_qualifies:
+        candidates.append((tail_high_idx, tail_high_val, "T"))
+
+    elif bot_qualifies:
+        candidates.append((tail_low_idx, tail_low_val, "B"))
+
+    if not candidates:
+        return cleaned
+
+    # Merge candidates into cleaned via _enforce_alternation
+    merged = _enforce_alternation(cleaned + candidates, min_strength)
+    return merged
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Public entry point
+# ─────────────────────────────────────────────────────────────────────────────
+
 def extrems(
     df: pd.DataFrame,
     order: int = 5,
@@ -81,6 +209,17 @@ def extrems(
     atr_period: int = 14,
     min_strength_atr_mult: float = 0.0,
 ) -> PivotList:
+    """
+    Detect pivot highs (T) and lows (B) in df using a rolling-window
+    vectorised approach, then append unconfirmed tail pivots.
+
+    Parameters
+    ----------
+    order               : look-left / look-right bars for pivot confirmation
+    min_strength        : minimum price distance between consecutive pivots
+    atr_period          : period for ATR used when min_strength_atr_mult > 0
+    min_strength_atr_mult : set min_strength = median_ATR × this multiplier
+    """
     highs = df["High"].values
     lows  = df["Low"].values
 
@@ -91,25 +230,8 @@ def extrems(
     raw     = _local_extremes_vectorised(highs, lows, order)
     cleaned = _enforce_alternation(raw, min_strength)
 
-    # Force-include tail pivot (last `order` bars can't be confirmed by rolling)
-    n          = len(highs)
-    tail_start = max(0, n - order * 2)
-    tail_highs = highs[tail_start:]
-    tail_lows  = lows[tail_start:]
-
-    if len(cleaned) >= 2 and len(tail_highs) > 0:
-        last_type = cleaned[-1][2]
-        last_val  = cleaned[-1][1]
-
-        tail_high_val = float(tail_highs.max())
-        tail_low_val  = float(tail_lows.min())
-        tail_high_idx = int(tail_start + tail_highs.argmax())
-        tail_low_idx  = int(tail_start + tail_lows.argmin())
-
-        if last_type == "T" and tail_low_val < last_val:
-            cleaned.append((tail_low_idx, tail_low_val, "B"))
-        elif last_type == "B" and tail_high_val > last_val:
-            cleaned.append((tail_high_idx, tail_high_val, "T"))
+    # Append unconfirmed tail pivots with proper alternation
+    cleaned = _append_tail_pivots(cleaned, highs, lows, order, min_strength)
 
     return cleaned
 
@@ -149,7 +271,6 @@ def _consolidation_type(pivots: PivotList) -> str:
     rng   = max(vals) - min(vals)
     avg   = sum(vals) / len(vals)
 
-    # Amplitude trend — is range expanding or contracting?
     amps = []
     tops    = [(i, v) for i, v, t in pivots if t == "T"]
     bottoms = [(i, v) for i, v, t in pivots if t == "B"]
@@ -188,7 +309,6 @@ def detect_trend(pivots: PivotList) -> str:
     bottom_score = _weighted_sequence_score(bottoms, n=4)
     combined     = (top_score + bottom_score) / 2.0
 
-    # Leg ratio for trend quality
     try:
         lr = compute_leg_ratio(pivots)
         ratio = lr["ratio"]
@@ -270,7 +390,6 @@ def compute_pivot_velocity(pivots: PivotList) -> Dict[str, Any]:
     elif acceleration < -avg_velocity * 0.15: accel_label = "decelerating"
     else:                                      accel_label = "steady"
 
-    # Net velocity in dominant trend direction (signed)
     trend_vel = float(np.mean([l["pts_per_bar"] for l in legs[-4:]]) if legs else 0.0)
 
     return {
@@ -291,17 +410,6 @@ def compute_pivot_velocity(pivots: PivotList) -> Dict[str, Any]:
 def compute_pivot_amplitude(pivots: PivotList) -> Dict[str, Any]:
     """
     Analyse swing amplitudes (absolute price distance between consecutive pivots).
-
-    Returns
-    -------
-    {
-      amplitudes      : list[float]  all swing sizes
-      avg_amplitude   : float
-      recent_avg      : float        last 4 swings avg
-      amplitude_trend : float        slope of amplitude over time (+= expanding)
-      regime          : str          'expanding' | 'contracting' | 'stable' | 'choppy'
-      variance_pct    : float        coefficient of variation (consistency)
-    }
     """
     if len(pivots) < 3:
         return {
@@ -316,7 +424,6 @@ def compute_pivot_amplitude(pivots: PivotList) -> Dict[str, Any]:
     recent_avg    = float(np.mean(amps[-4:])) if len(amps) >= 4 else float(np.mean(amps))
     variance_pct  = float(np.std(amps) / avg_amplitude * 100) if avg_amplitude > 0 else 0.0
 
-    # Amplitude trend — linear slope over swing index
     if len(amps) >= 4:
         x = np.arange(len(amps), dtype=float)
         slope, _, r, _, _ = linregress(x, amps)
@@ -327,7 +434,6 @@ def compute_pivot_amplitude(pivots: PivotList) -> Dict[str, Any]:
         norm_slope      = 0.0
         r               = 0.0
 
-    # Regime classification
     if   variance_pct > 60:               regime = "choppy"
     elif norm_slope >  0.05 and r > 0.4:  regime = "expanding"
     elif norm_slope < -0.05 and r > 0.4:  regime = "contracting"
@@ -350,23 +456,6 @@ def compute_pivot_amplitude(pivots: PivotList) -> Dict[str, Any]:
 def compute_leg_ratio(pivots: PivotList) -> Dict[str, Any]:
     """
     Compare the magnitude of bullish legs (B→T) vs bearish legs (T→B).
-
-    ratio > 1.0  →  bulls dominating (up moves > down moves)
-    ratio < 1.0  →  bears dominating
-    ratio ≈ 1.0  →  balanced / consolidation
-
-    Returns
-    -------
-    {
-      bull_legs     : list[float]   B→T amplitudes
-      bear_legs     : list[float]   T→B amplitudes
-      avg_bull      : float
-      avg_bear      : float
-      ratio         : float         avg_bull / avg_bear
-      recent_ratio  : float         last 2 bull / last 2 bear
-      label         : str           'bull_dominating' | 'bear_dominating' |
-                                    'balanced' | 'bull_weakening' | 'bear_weakening'
-    }
     """
     bull_legs = []
     bear_legs = []
@@ -384,12 +473,10 @@ def compute_leg_ratio(pivots: PivotList) -> Dict[str, Any]:
     avg_bear = float(np.mean(bear_legs)) if bear_legs else 0.0
     ratio    = avg_bull / avg_bear if avg_bear > 0 else 1.0
 
-    # Recent ratio — last 2 of each
     r_bull   = float(np.mean(bull_legs[-2:])) if len(bull_legs) >= 2 else avg_bull
     r_bear   = float(np.mean(bear_legs[-2:])) if len(bear_legs) >= 2 else avg_bear
     r_ratio  = r_bull / r_bear if r_bear > 0 else 1.0
 
-    # Label
     if   ratio >= 2.0:                        label = "bull_dominating"
     elif ratio >= 1.3:                        label = "bull_favoured"
     elif ratio >= 0.77:
@@ -399,7 +486,6 @@ def compute_leg_ratio(pivots: PivotList) -> Dict[str, Any]:
     elif ratio >= 0.5:                        label = "bear_favoured"
     else:                                     label = "bear_dominating"
 
-    # Weakening checks — recent ratio diverging from overall
     if label in ("bull_dominating", "bull_favoured") and r_ratio < ratio * 0.7:
         label = "bull_weakening"
     if label in ("bear_dominating", "bear_favoured") and r_ratio > ratio * 1.4:
@@ -417,10 +503,9 @@ def compute_leg_ratio(pivots: PivotList) -> Dict[str, Any]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Multi-Order Trend  —  core new function
+# Multi-Order Trend
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Trend group mappings for filter matching
 UPTREND_LABELS    = frozenset({
     "strong_uptrend", "continuous_uptrend", "up",
     "semi-up", "weakening_uptrend", "bullish_mitigation",
@@ -433,9 +518,8 @@ NEUTRAL_LABELS    = frozenset({
     "sw", "expanding_structure",
 })
 
-# Filter group aliases — what "any_uptrend" expands to
 TREND_GROUPS = {
-    "any":            None,             # no filter
+    "any":            None,
     "any_uptrend":    UPTREND_LABELS,
     "any_downtrend":  DOWNTREND_LABELS,
     "any_neutral":    NEUTRAL_LABELS,
@@ -443,21 +527,15 @@ TREND_GROUPS = {
 
 
 def _trend_matches(actual: str, filter_val: str) -> bool:
-    """Check if actual trend satisfies the filter setting."""
     if not filter_val or filter_val == "any":
         return True
     if filter_val in TREND_GROUPS:
         group = TREND_GROUPS[filter_val]
         return group is None or actual in group
-    # Exact label match
     return actual == filter_val
 
 
 def _alignment_score(trends: List[str]) -> int:
-    """
-    Count how many of the given trend labels agree on direction.
-    Returns 0-N where N = number of orders.
-    """
     up   = sum(1 for t in trends if t in UPTREND_LABELS)
     dn   = sum(1 for t in trends if t in DOWNTREND_LABELS)
     return max(up, dn)
@@ -468,19 +546,14 @@ def _combined_trend_label(
     alignment: int,
     n: int,
 ) -> str:
-    """
-    Derive a single combined trend label from multiple order trends.
-    """
     if alignment == n:
-        # Full agreement — use most conservative (weakest) common label
         if all(t == "strong_uptrend"      for t in trends): return "strong_uptrend"
         if all(t in UPTREND_LABELS        for t in trends): return "continuous_uptrend"
         if all(t in DOWNTREND_LABELS      for t in trends): return "continuous_downtrend"
         if all(t == "strong_downtrend"    for t in trends): return "strong_downtrend"
-        return trends[-1]   # fallback: use lowest order (most current)
+        return trends[-1]
 
     if alignment == n - 1:
-        # Majority agreement
         up = sum(1 for t in trends if t in UPTREND_LABELS)
         dn = sum(1 for t in trends if t in DOWNTREND_LABELS)
         if up > dn: return "up"
@@ -499,16 +572,6 @@ def detect_trend_multiorder(
     """
     Run pivot detection at three orders and combine into a multi-order
     trend assessment.
-
-    Returns
-    -------
-    {
-      low:  { order, trend, pivots, velocity, amplitude, leg_ratio, score }
-      mid:  { ... }
-      high: { ... }
-      alignment:      int   (0-3, how many orders agree on direction)
-      combined_trend: str
-    }
     """
     result = {}
 
@@ -516,12 +579,11 @@ def detect_trend_multiorder(
         pvts = extrems(df, order=order, min_strength=min_strength)
         tr   = detect_trend(pvts)
 
-        # Weighted score for display bar width
         tops    = [(i, v) for i, v, t in pvts if t == "T"]
         bottoms = [(i, v) for i, v, t in pvts if t == "B"]
         ts   = _weighted_sequence_score(tops,    n=4)
         bs   = _weighted_sequence_score(bottoms, n=4)
-        score = (ts + bs) / 2.0   # -1 to +1
+        score = (ts + bs) / 2.0
 
         vel  = compute_pivot_velocity(pvts)
         amp  = compute_pivot_amplitude(pvts)
@@ -530,7 +592,7 @@ def detect_trend_multiorder(
         result[level] = {
             "order":     order,
             "trend":     tr,
-            "score":     round(score, 3),   # -1.0 to +1.0
+            "score":     round(score, 3),
             "velocity":  vel,
             "amplitude": amp,
             "leg_ratio": lr,
