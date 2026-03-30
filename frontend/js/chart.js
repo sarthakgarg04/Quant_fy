@@ -1,31 +1,34 @@
 /* ═══════════════════════════════════════════════════════════════
-   chart.js — LightweightCharts engine
-   Consolidates: qs-shared.js chart factory + index.html inline
-   chart functions + chart_fixes.js overrides.
-   chart_fixes.js is no longer needed.
+   chart.js — LightweightCharts engine  v3.4
+   ─────────────────────────────────────────────────────────────
+   New in v3.4:
+   • Volume histogram rendered as a separate price scale on the
+     right side of the chart (same panel, bottom 20% of height),
+     using LWC's built-in histogram series with priceScaleId:'vol'.
+     Up bars: green (same colour as bullish candles, 50% opacity).
+     Down bars: red (same as bearish, 50% opacity).
+     Volume scale is hidden (no labels) so it doesn't clutter.
 
    Depends on: shared.js (QS.safeColor), api.js (API.trendData)
-   Exports:    window.Chart (the chart controller object)
 ═══════════════════════════════════════════════════════════════ */
 
 const Chart = (() => {
 
   /* ── State ──────────────────────────────────────────────── */
-  let _chart    = null;   // LWC chart instance
-  let _cs       = null;   // candlestick series
-  let _xtra     = [];     // extra series (zones, pivot lines) — cleaned each load
-  let _pivotSeries = {};  // { single|H|M|L: [series, ...] }
+  let _chart    = null;
+  let _cs       = null;       // candlestick series
+  let _vol      = null;       // volume histogram series
+  let _xtra     = [];         // zone + pivot series — cleared each load
+  let _pivotSeries = {};
   let _ready    = false;
   let _broken   = false;
-  let _seq      = 0;      // load sequence — prevents stale renders
+  let _seq      = 0;
 
-  /* pivot visibility state — managed externally by scanner.js */
   let _activeLevels = new Set(['single']);
 
-  /* pivot cache: "ticker|tf|order" → pivot array */
-  const _cache = {};
+  const _cache = {};   // pivot cache keyed "ticker|tf|order"
 
-  /* Zone type → base color (6-digit, safe for alpha concat) */
+  /* Zone type → base 6-digit hex color */
   const ZONE_COLORS = {
     rbr:           '#22c55e',
     dbr:           '#2dd4bf',
@@ -40,63 +43,43 @@ const Chart = (() => {
     L: { dot: '#16a34a', label: 'LOW',  cls: 'moL' },
   };
 
-  /* ═══════════════════════════════════════════════════════════
-     Data sanitisation
-     LWC throws "Value is null" or "Cannot parse color" on any
-     null/NaN/bad-hex value. Sanitise BEFORE every setData call.
-  ═══════════════════════════════════════════════════════════ */
+  /* ── Data sanitisation ────────────────────────────────────── */
   function _sanitise(arr) {
-    if (!Array.isArray(arr) || arr.length === 0) return [];
-
+    if (!Array.isArray(arr) || !arr.length) return [];
     const clean = arr.filter(d => {
       if (d == null || d.time == null) return false;
-      if ('open' in d)   // OHLCV candle
-        return isFinite(d.open) && isFinite(d.high) &&
-               isFinite(d.low)  && isFinite(d.close);
+      if ('open' in d)
+        return isFinite(d.open) && isFinite(d.high) && isFinite(d.low) && isFinite(d.close);
       return d.value != null && isFinite(d.value);
     });
-
     clean.sort((a, b) => a.time - b.time);
-
-    // Deduplicate — keep last occurrence of duplicate timestamps
-    const seen = new Set();
-    const out  = [];
+    const seen = new Set(); const out = [];
     for (let i = clean.length - 1; i >= 0; i--) {
-      if (!seen.has(clean[i].time)) {
-        seen.add(clean[i].time);
-        out.unshift(clean[i]);
-      }
+      if (!seen.has(clean[i].time)) { seen.add(clean[i].time); out.unshift(clean[i]); }
     }
     return out;
   }
 
   function _sanitiseMarkers(markers) {
     if (!Array.isArray(markers)) return [];
-    return markers
-      .filter(m => m != null && m.time != null && isFinite(m.time))
-      .sort((a, b) => a.time - b.time);
+    return markers.filter(m => m != null && m.time != null && isFinite(m.time))
+                  .sort((a, b) => a.time - b.time);
   }
 
-  /* ═══════════════════════════════════════════════════════════
-     init — create or repair chart instance
-     Called before every loadChart.
-     On healthy chart: only clears zone+pivot series, keeps cs.
-     On broken chart:  tears down and rebuilds from scratch.
-  ═══════════════════════════════════════════════════════════ */
+  /* ── init ─────────────────────────────────────────────────── */
   function init(containerId) {
-    // Always clear extra series
-    _xtra.forEach(s => { try { _chart && _chart.removeSeries(s); } catch (_) {} });
+    // Clear extra series
+    _xtra.forEach(s => { try { _chart && _chart.removeSeries(s); } catch(_){} });
     _xtra = [];
     Object.values(_pivotSeries).flat().forEach(s => {
-      try { _chart && _chart.removeSeries(s); } catch (_) {}
+      try { _chart && _chart.removeSeries(s); } catch(_) {}
     });
     _pivotSeries = {};
 
-    if (_ready && !_broken) return;   // chart+cs healthy — done
+    if (_ready && !_broken) return;
 
-    // Tear down broken instance
-    if (_chart) { try { _chart.remove(); } catch (_) {} }
-    _chart = null; _cs = null; _ready = false; _broken = false;
+    if (_chart) { try { _chart.remove(); } catch(_){} }
+    _chart = null; _cs = null; _vol = null; _ready = false; _broken = false;
 
     const wrap   = document.getElementById(containerId || 'cw');
     const loader = document.getElementById('cload');
@@ -118,10 +101,27 @@ const Chart = (() => {
       },
     });
 
+    /* Candlestick series */
     _cs = _chart.addCandlestickSeries({
       upColor:       '#22c55e', downColor:       '#ef4444',
       borderUpColor: '#22c55e', borderDownColor: '#ef4444',
       wickUpColor:   '#22c55e', wickDownColor:   '#ef4444',
+    });
+
+    /* Volume histogram series
+       priceScaleId:'vol' creates a separate scale.
+       scaleMargins keeps it in the bottom 20% of the chart area
+       without splitting the pane.                               */
+    _vol = _chart.addHistogramSeries({
+      priceFormat:    { type: 'volume' },
+      priceScaleId:   'vol',
+      color:          'rgba(34,197,94,0.5)',
+      lastValueVisible: false,
+      priceLineVisible: false,
+    });
+    _chart.priceScale('vol').applyOptions({
+      scaleMargins: { top: 0.80, bottom: 0.00 },
+      visible:      false,    // hide the volume price axis labels
     });
 
     new ResizeObserver(() => {
@@ -134,15 +134,7 @@ const Chart = (() => {
     _ready = true;
   }
 
-  /* ═══════════════════════════════════════════════════════════
-     load — main entry point
-     ticker:    string
-     params:    { interval, order, legout_mult, strategy,
-                  zone_lookback, multi_order,
-                  order_low, order_mid, order_high }
-     direction: 'buy' | 'sell'
-     activeLegInTs: unix timestamp of the active zone's legin
-  ═══════════════════════════════════════════════════════════ */
+  /* ── load ─────────────────────────────────────────────────── */
   async function load(ticker, params, direction, activeLegInTs) {
     if (_broken) _ready = false;
     init();
@@ -151,7 +143,6 @@ const Chart = (() => {
     _showLoader(true);
 
     try {
-      /* 1 — fetch OHLCV + zones */
       let d;
       try {
         d = await API.chartData(ticker, { ...params, multi_order: true });
@@ -161,39 +152,47 @@ const Chart = (() => {
       }
       if (seq !== _seq) return;
 
-      if (!d || d.error || !Array.isArray(d.candles) || d.candles.length === 0) {
-        console.warn('[chart] no candle data:', ticker, d && d.error);
+      if (!d || d.error || !Array.isArray(d.candles) || !d.candles.length) {
+        console.warn('[chart] no candle data:', ticker, d?.error);
         return;
       }
 
-      /* 2 — sanitise + set candles */
+      /* ── 1. Candles ────────────────────────────────────────── */
       const candles = _sanitise(d.candles);
-      if (!candles.length) { console.warn('[chart] empty after sanitise:', ticker); return; }
+      if (!candles.length) { console.warn('[chart] empty after sanitise'); return; }
 
-      try {
-        _cs.setData(candles);
-      } catch (e) {
-        console.error('[chart] cs.setData threw:', e.message);
-        _broken = true;
-        return;
+      try { _cs.setData(candles); }
+      catch (e) { console.error('[chart] cs.setData:', e.message); _broken = true; return; }
+
+      /* ── 2. Volume bars ────────────────────────────────────── */
+      if (_vol) {
+        const volData = _sanitise(
+          candles.map(c => ({
+            time:  c.time,
+            value: c.volume || 0,
+            // Colour bar based on candle direction
+            color: c.close >= c.open
+              ? 'rgba(34,197,94,0.45)'    // green — up candle
+              : 'rgba(239,68,68,0.45)',   // red   — down candle
+          }))
+        );
+        try { _vol.setData(volData); } catch(e) { console.warn('[chart] vol.setData:', e.message); }
       }
 
-      /* 3 — zones (sync) */
+      /* ── 3. Zones ──────────────────────────────────────────── */
       const dir   = direction || 'buy';
-      const zones = dir === 'buy' ? (d.buy_zones || []) : (d.sell_zones || []);
+      const zones = dir === 'buy' ? (d.buy_zones||[]) : (d.sell_zones||[]);
       _renderZones(zones, candles, activeLegInTs);
 
-      /* 4 — pivots (async — await before scroll) */
+      /* ── 4. Pivots ─────────────────────────────────────────── */
       await _renderPivots(d, ticker, params);
       if (seq !== _seq) return;
 
-      /* 5 — scroll: latest candle at ~80% from left
-             scrollToRealTime() → pin last bar to right edge
-             scrollToPosition(+12) → shift left 12 bars → right padding */
+      /* ── 5. Scroll to latest ───────────────────────────────── */
       _chart.timeScale().scrollToRealTime();
       requestAnimationFrame(() => {
         if (seq !== _seq) return;
-        try { _chart.timeScale().scrollToPosition(12, false); } catch (_) {}
+        try { _chart.timeScale().scrollToPosition(12, false); } catch(_) {}
       });
 
     } catch (e) {
@@ -205,9 +204,7 @@ const Chart = (() => {
     }
   }
 
-  /* ═══════════════════════════════════════════════════════════
-     _renderPivots
-  ═══════════════════════════════════════════════════════════ */
+  /* ── _renderPivots ────────────────────────────────────────── */
   async function _renderPivots(d, ticker, params) {
     const moEnabled = params.multi_order === true || params.multi_order === 'true';
     const seq = _seq;
@@ -231,13 +228,10 @@ const Chart = (() => {
       _pivotSeries['M'] = _addPivotSeries(pvM.length ? pvM : (d.pivots||[]), '#1d4ed8', 'M');
       _pivotSeries['L'] = _addPivotSeries(pvL.length ? pvL : (d.pivots||[]), '#16a34a', 'L');
     }
-
     _applyVisibility();
   }
 
-  /* ═══════════════════════════════════════════════════════════
-     _addPivotSeries — sanitise → addLineSeries → setData → setMarkers
-  ═══════════════════════════════════════════════════════════ */
+  /* ── _addPivotSeries ─────────────────────────────────────── */
   function _addPivotSeries(pivots, color, levelKey) {
     if (!_chart) return [];
 
@@ -259,17 +253,15 @@ const Chart = (() => {
         lastValueVisible: false, priceLineVisible: false,
       });
     } catch (e) {
-      console.error('[pivots] addLineSeries failed:', e.message);
-      _broken = true;
-      return [];
+      console.error('[pivots] addLineSeries:', e.message);
+      _broken = true; return [];
     }
 
-    try {
-      s.setData(clean.map(p => ({ time: p.time, value: p.value })));
-    } catch (e) {
-      console.error('[pivots] setData failed:', levelKey, e.message);
+    try { s.setData(clean.map(p => ({ time: p.time, value: p.value }))); }
+    catch (e) {
+      console.error('[pivots] setData:', levelKey, e.message);
       _broken = true;
-      try { _chart.removeSeries(s); } catch (_) {}
+      try { _chart.removeSeries(s); } catch(_) {}
       return [];
     }
 
@@ -282,18 +274,14 @@ const Chart = (() => {
         size:     1,
       })));
       if (markers.length) s.setMarkers(markers);
-    } catch (e) {
-      console.warn('[pivots] setMarkers failed:', levelKey, e.message);
-    }
+    } catch (e) { console.warn('[pivots] setMarkers:', levelKey, e.message); }
 
     _xtra.push(s);
     _pivotSeries[levelKey] = [s];
     return [s];
   }
 
-  /* ═══════════════════════════════════════════════════════════
-     _fetchPivots — cached, never throws
-  ═══════════════════════════════════════════════════════════ */
+  /* ── _fetchPivots ────────────────────────────────────────── */
   async function _fetchPivots(ticker, tf, order) {
     const key = `${ticker}|${tf}|${order}`;
     if (_cache[key]) return _cache[key];
@@ -301,14 +289,10 @@ const Chart = (() => {
       const data = await API.trendData(ticker, { interval: tf, order, days: 500 });
       _cache[key] = data.pivots || [];
       return _cache[key];
-    } catch (_) {
-      return [];
-    }
+    } catch(_) { return []; }
   }
 
-  /* ═══════════════════════════════════════════════════════════
-     _renderZones — sanitised zone rendering
-  ═══════════════════════════════════════════════════════════ */
+  /* ── _renderZones ────────────────────────────────────────── */
   function _renderZones(zones, candles, activeLegInTs) {
     if (!_chart || !candles.length || !zones.length) return;
 
@@ -318,18 +302,17 @@ const Chart = (() => {
       ? last - candles[candles.length - 2].time : 86400;
 
     zones.forEach(z => {
-      if (z.price_high == null || z.price_low == null)    return;
+      if (z.price_high == null || z.price_low == null) return;
       if (!isFinite(z.price_high) || !isFinite(z.price_low)) return;
       if (z.price_high <= z.price_low) return;
 
-      const ts0 = Math.max(z.time_start, first);
-      const ts1 = Math.max(last + bSec * 5, z.time_end + bSec * 3);
+      const ts0  = Math.max(z.time_start, first);
+      const ts1  = Math.max(last + bSec * 5, z.time_end + bSec * 3);
       if (ts0 > last) return;
 
       const inv  = z.status === 'invalidated';
       const isA  = activeLegInTs && Math.abs(z.time_start - activeLegInTs) <= 86400;
-      // Always 6-digit base colors so alpha concat gives valid 8-digit #RRGGBBAA
-      const base = inv ? '#666666' : (ZONE_COLORS[z.zone_type] || '#22c55e');
+      const base  = inv ? '#666666' : (ZONE_COLORS[z.zone_type] || '#22c55e');
       const lineColor  = QS.safeColor(base + (inv ? '55' : isA ? 'ff' : 'bb'));
       const fillColor  = QS.safeColor(base + (inv ? '0d' : isA ? '44' : '22'));
       const fillColor2 = QS.safeColor(base + '0d');
@@ -358,18 +341,17 @@ const Chart = (() => {
           lineWidth: 0,
           crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false,
         });
-        const fp = _sanitise([{ time: ts0, value: z.price_high }, { time: ts1, value: z.price_high }]);
+        const fp = _sanitise([
+          { time: ts0, value: z.price_high },
+          { time: ts1, value: z.price_high },
+        ]);
         if (fp.length) fill.setData(fp);
         _xtra.push(fill);
-      } catch (e) {
-        console.warn('[zones] render error:', e.message);
-      }
+      } catch (e) { console.warn('[zones] render error:', e.message); }
     });
   }
 
-  /* ═══════════════════════════════════════════════════════════
-     Pivot visibility toggle (called by scanner.js)
-  ═══════════════════════════════════════════════════════════ */
+  /* ── Pivot visibility ────────────────────────────────────── */
   function setActiveLevels(levels) {
     _activeLevels = new Set(levels);
     _applyVisibility();
@@ -377,7 +359,7 @@ const Chart = (() => {
 
   function toggleLevel(level) {
     if (_activeLevels.has(level)) {
-      if (_activeLevels.size === 1) return;   // don't deselect last
+      if (_activeLevels.size === 1) return;
       _activeLevels.delete(level);
     } else {
       _activeLevels.add(level);
@@ -390,45 +372,40 @@ const Chart = (() => {
     Object.entries(_pivotSeries).forEach(([level, seriesArr]) => {
       const visible = _activeLevels.has(level);
       (seriesArr || []).forEach(s => {
-        try { s.applyOptions({ visible }); } catch (_) {}
+        try { s.applyOptions({ visible }); } catch(_) {}
       });
     });
   }
 
-  /* ── Cache management ───────────────────────────────────── */
+  /* ── Cache + loader ──────────────────────────────────────── */
   function bustCache(tf) {
     Object.keys(_cache).forEach(k => {
       if (!tf || k.split('|')[1] === tf) delete _cache[k];
     });
   }
 
-  /* ── Loader helper ──────────────────────────────────────── */
   function _showLoader(show) {
     const el = document.getElementById('cload');
     if (el) el.classList.toggle('show', show);
   }
 
-  /* ── Scroll ─────────────────────────────────────────────── */
   function scrollToLatest() {
     if (!_chart) return;
     try {
       _chart.timeScale().scrollToRealTime();
       requestAnimationFrame(() => {
-        try { _chart.timeScale().scrollToPosition(12, false); } catch (_) {}
+        try { _chart.timeScale().scrollToPosition(12, false); } catch(_) {}
       });
-    } catch (_) {}
+    } catch(_) {}
   }
 
-  /* ── Public surface ─────────────────────────────────────── */
+  /* ── Public ──────────────────────────────────────────────── */
   return {
-    init,
-    load,
-    toggleLevel,
-    setActiveLevels,
-    bustCache,
-    scrollToLatest,
+    init, load,
+    toggleLevel, setActiveLevels,
+    bustCache, scrollToLatest,
     get activeLevels() { return [..._activeLevels]; },
-    get moColors() { return MO_COLORS; },
+    get moColors()     { return MO_COLORS; },
   };
 })();
 

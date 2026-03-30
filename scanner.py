@@ -35,6 +35,10 @@ import pandas as pd
 from algos.patterns  import pivot_trend_strength
 from algos.zones     import scan_zones
 
+from utils.logger import get_logger
+
+log = get_logger(__name__)
+
 _DEFAULT_ATR_TYPES = {
     "buy":  ["rbr", "dbr"],
     "sell": ["dbd", "rbd"],
@@ -134,12 +138,8 @@ def analyse_symbol(
             return None
 
         pvts     = extrems(df, order=order)
-        trend    = detect_trend(pvts)
+        trend    = detect_trend(pvts)          # preliminary — used for velocity/amp/lr
         strength = pivot_trend_strength(pvts)
-
-        # Legacy trend label filter
-        if trend_filter and trend not in trend_filter:
-            return None
 
         # Effective order levels
         eff_low  = order_low  if multi_order else order
@@ -149,6 +149,24 @@ def analyse_symbol(
         mo = get_multiorder_structure(
             df, order_low=eff_low, order_mid=eff_mid, order_high=eff_high
         )
+
+        # ── Trend filter (FIXED v3.4) ─────────────────────────────────────────
+        # BUG WAS: checked `trend` from single-order detect_trend(order=5)
+        # FIX:     check mo["low"]["trend"] which uses the correct effective order
+        # This ensures the filter matches the trend displayed in the UI row.
+        effective_trend = detect_trend(extrems(df, order=eff_low))
+
+        if trend_filter and effective_trend not in trend_filter:
+            log.debug(
+                "Trend filter drop",
+                ticker=ticker,
+                effective_trend=effective_trend,
+                filter=sorted(trend_filter),
+                raw_trend=trend,
+            )
+            return None
+
+        trend = effective_trend   # use authoritative value in result row
 
         # Apply structure filter
         if multi_order:
@@ -235,7 +253,8 @@ def analyse_symbol(
         result.update(_structure_fields(mo))
         return result
 
-    except Exception:
+    except Exception as e:
+        log.error("analyse_symbol exception", ticker=ticker, error=str(e))
         traceback.print_exc()
         return None
 
@@ -267,6 +286,17 @@ def scan_watchlist(
     sf_low  = set(structure_filter_low)  if structure_filter_low  else None
     sf_mid  = set(structure_filter_mid)  if structure_filter_mid  else None
     sf_high = set(structure_filter_high) if structure_filter_high else None
+
+    import time as _time
+    t0 = _time.perf_counter()
+    log.info(
+        "Scan started",
+        symbols=len(tickers),
+        direction=direction,
+        strategy=strategy,
+        multi_order=multi_order,
+        trend_filter=sorted(trend_filter) if trend_filter else "any",
+    )
 
     if not atr_zone_types:
         atr_zone_types = _DEFAULT_ATR_TYPES.get(direction, ["rbr", "dbr"])
@@ -302,4 +332,13 @@ def scan_watchlist(
     sort_col = "atr_pct" if strategy == "trend_only" else "bars_ago"
     df_out.sort_values(sort_col, ascending=True, inplace=True)
     df_out.reset_index(drop=True, inplace=True)
+
+    elapsed = round((_time.perf_counter() - t0) * 1000)
+    log.info(
+        "Scan complete",
+        symbols=len(tickers),
+        matched=len(results),
+        elapsed_ms=elapsed,
+    )
+
     return df_out

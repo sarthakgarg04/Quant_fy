@@ -68,6 +68,10 @@ from algos.zones        import scan_zones, buy_zone, sell_zone
 from algos.confluence   import confluence_score, measure_edge
 from algos.patterns     import detect_flag, detect_triangle, pivot_trend_strength
 from scanner            import scan_watchlist
+from utils.logger       import get_logger, read_log_tail, log_stats
+
+log = get_logger(__name__)
+log.info("QuantScanner starting", version="3.1")
 
 FRONTEND_DIR = os.path.join(ROOT, "frontend")
 app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path="")
@@ -94,7 +98,7 @@ def _run_fetch_task(task_id: str, tf: str, src: str, universe: str,
             for k, v in kw.items():
                 _fetch_tasks[task_id][k] = v
 
-    def log(msg: str, kind: str = "inf"):
+    def task_log(msg: str, kind: str = "inf"):
         with _fetch_lock:
             entries = _fetch_tasks[task_id]["log"]
             entries.append({"msg": msg, "kind": kind})
@@ -103,69 +107,86 @@ def _run_fetch_task(task_id: str, tf: str, src: str, universe: str,
 
     try:
         upd(status="running", title=f"Starting {src} fetch — {tf}")
-        log(f"Starting {src} fetch — {tf}", "inf")
+        task_log(f"Starting {src} fetch — {tf}", "inf")
 
         if src == "upstox":
             ok_tok, _ = is_token_valid(token)
             if not ok_tok:
                 upd(status="error", title="Token expired — re-authenticate.")
-                log("Token expired — re-authenticate.", "err")
+                task_log("Token expired — re-authenticate.", "err")
                 return
 
-            log("Downloading instrument master…", "inf")
+            task_log("Downloading instrument master…", "inf")
             segments = tuple(e.strip() for e in universe.split(","))
             instr    = get_eq_instruments(segments)
             keys     = instr["instrument_key"].tolist()
             upd(total=len(keys))
-            log(f"Found {len(keys)} instruments in {universe}", "inf")
+            task_log(f"Found {len(keys)} instruments in {universe}", "inf")
 
             if not keys:
                 upd(status="error", title=f"0 instruments found for {universe}")
-                log(f"0 instruments found for {universe}", "err")
+                task_log(f"0 instruments found for {universe}", "err")
                 return
 
             ok_n = err_n = 0
-            for done, total, sym, ok in fetch_upstox_batch_iter(keys, tf, token):
-                # Check for cancellation
+            for done, total, sym, ok, err_msg in fetch_upstox_batch_iter(keys, tf, token):
                 if _fetch_tasks[task_id].get("status") == "cancelled":
-                    log("Cancelled by user.", "inf")
+                    task_log("Cancelled by user.", "inf")
                     return
-                if ok: ok_n += 1
-                else:  err_n += 1
+                if ok:
+                    ok_n += 1
+                    task_log(f"✓ {sym}", "ok")
+                else:
+                    err_n += 1
+                    detail = f" — {err_msg}" if err_msg else " — unknown error"
+                    task_log(f"✗ {sym}{detail}", "err")
+                    log.warning("Upstox symbol failed",
+                                   sym=sym, interval=tf, error=err_msg or "unknown")
                 upd(done=done, total=total, ok_count=ok_n, err_count=err_n)
-                log(f"{'✓' if ok else '✗'} {sym}", "ok" if ok else "err")
 
         else:  # yfinance
             tickers = get_watchlist(wl)
             total   = len(tickers)
             upd(total=total)
-            log(f"Fetching {total} tickers via yfinance…", "inf")
+            task_log(f"Fetching {total} tickers via yfinance…", "inf")
             ok_n = err_n = 0
             for i, ticker in enumerate(tickers, 1):
                 if _fetch_tasks[task_id].get("status") == "cancelled":
-                    log("Cancelled by user.", "inf")
+                    task_log("Cancelled by user.", "inf")
                     return
                 try:
                     df = fetch_ohlcv(ticker, interval=tf, force_refresh=force)
                     ok = not df.empty
-                except Exception:
+                    if not ok:
+                        task_log(f"✗ {ticker} — empty response", "err")
+                except Exception as e:
                     ok = False
+                    task_log(f"✗ {ticker} — {e}", "err")
+                    log.warning("yfinance symbol failed",
+                                   ticker=ticker, interval=tf, error=str(e))
                 if ok: ok_n += 1
                 else:  err_n += 1
                 upd(done=i, total=total, ok_count=ok_n, err_count=err_n)
-                log(f"{'✓' if ok else '✗'} {ticker}", "ok" if ok else "err")
+                task_log(f"{'✓' if ok else '✗'} {ticker}", "ok" if ok else "err")
                 time.sleep(0.05)
 
         final = f"Done — {_fetch_tasks[task_id]['ok_count']} OK · {_fetch_tasks[task_id]['err_count']} errors"
         upd(status="done", title=final)
-        log(f"✅ {final}", "inf")
+        task_log(f"✅ {final}", "inf")
 
     except Exception as exc:
-        import traceback
-        msg = f"Error: {exc}"
+        import traceback as _tb
+        tb_str = _tb.format_exc()          # full stack trace as a string
+        msg    = f"Fatal error: {exc}"
         upd(status="error", title=msg)
         log(msg, "err")
-        traceback.print_exc()
+        log(tb_str, "err")                 # full traceback visible in UI log panel too
+        log.error(                      # write to rotating log file with full trace
+            "fetch_task fatal exception",
+            task_id=task_id, tf=tf, src=src,
+            error=str(exc),
+        )
+        log.error(tb_str)   
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -218,6 +239,58 @@ def static_files(filename): return send_from_directory(FRONTEND_DIR, filename)
 @app.route("/api/health")
 def health(): return jsonify({"status": "ok", "version": "3.1"})
 
+@app.route("/api/log", methods=["POST"])
+def receive_frontend_log():
+    """Receives log events from frontend JS. Written to rotating log with [FE] tag."""
+    try:
+        data    = request.get_json(silent=True) or {}
+        level   = data.get("level",   "info").lower()
+        module  = f"[FE] {data.get('module', 'frontend')}"
+        message = data.get("message", "(no message)")
+        context = data.get("context", {})
+
+        fe_log = get_logger(module)
+        if level == "error":
+            fe_log.error(message, **context)
+        elif level in ("warn", "warning"):
+            fe_log.warning(message, **context)
+        elif level == "debug":
+            fe_log.debug(message, **context)
+        else:
+            fe_log.info(message, **context)
+
+        return jsonify({"ok": True})
+    except Exception as e:
+        log.error("Frontend log endpoint failed", error=str(e))
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/logs")
+def get_logs():
+    """Returns last N log lines. Query params: n (default 200), level (filter)."""
+    try:
+        n            = min(int(request.args.get("n", 200)), 1000)
+        level_filter = request.args.get("level", "").strip().upper()
+        lines        = read_log_tail(n_lines=n, level_filter=level_filter)
+        return jsonify({
+            "lines":    lines,
+            "count":    len(lines),
+            "log_file": str(log_stats()["log_file"]),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/logs/stats")
+def get_log_stats():
+    """Returns log rotation status and file sizes."""
+    try:
+        stats = log_stats()
+        stats["total_size"] = sum(f["size"] for f in stats["files"])
+        return jsonify(stats)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Scanner
@@ -257,6 +330,17 @@ def scan():
  
     tf_list = [t.strip() for t in trend_filter.split(",") if t.strip()] or None
  
+    log.info(
+        "Scan request received",
+        direction=direction, interval=interval,
+        strategy=strategy,   multi_order=multi_order,
+        trend_filter=tf_list or "any",
+        order=order,
+    )
+    import time as _time
+    _t0 = _time.perf_counter()
+
+
     stored = list_stored(interval)
     if not stored:
         return jsonify({
@@ -298,6 +382,12 @@ def scan():
         return jsonify({"results": [], "count": 0})
  
     records = [_sr(r) for r in df_res.to_dict(orient="records")]
+    log.info(
+        "Scan response sent",
+        matched=len(records),
+        interval=interval,
+        elapsed_ms=round((_time.perf_counter() - _t0) * 1000),
+    )
     return jsonify({"results": records, "count": len(records)})
 
 

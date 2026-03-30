@@ -47,6 +47,7 @@ UPSTOX_AUTH_URL    = "https://api.upstox.com/v2/login/authorization/dialog"
 UPSTOX_TOKEN_URL   = "https://api.upstox.com/v2/login/authorization/token"
 
 UPSTOX_INTERVAL_MAP: Dict[str, Tuple[str, str]] = {
+    "1m":  ("minutes", "1"),    # ← new
     "5m":  ("minutes", "5"),
     "15m": ("minutes", "15"),
     "1h":  ("minutes", "60"),
@@ -56,7 +57,13 @@ UPSTOX_INTERVAL_MAP: Dict[str, Tuple[str, str]] = {
 }
 
 DAYS_LOOKBACK: Dict[str, int] = {
-    "5m": 5, "15m": 10, "1h": 30, "4h": 90, "1d": 700, "1wk": 2000,
+    "1m": 7,    # ← new — Upstox only provides ~2 days of 1m data
+    "5m": 7,
+    "15m": 10,
+    "1h": 30,
+    "4h": 90,
+    "1d": 1200,
+    "1wk": 2000,
 }
 
 
@@ -403,7 +410,7 @@ def fetch_candle_data(
         return None
 
     interval_unit, interval_value = UPSTOX_INTERVAL_MAP.get(interval, ("days", "1"))
-
+    last_exc = None
     for attempt in range(retries):
         try:
             response = api_instance.get_historical_candle_data1(
@@ -426,8 +433,11 @@ def fetch_candle_data(
             df = df[df["Volume"] > 0]
             return _add_prev_close(df)
         except Exception as e:
+            last_exc = e
             if attempt < retries - 1:
                 time.sleep(delay)
+            else:
+                raise last_exc   # re-raise on final attempt so caller sees it
     return None
 
 
@@ -614,17 +624,23 @@ def fetch_upstox_batch_iter(
                 for ikey in batch
             }
             for future in as_completed(future_to_key):
-                ikey = future_to_key[future]
-                sym  = sym_map.get(ikey, ikey)
-                done += 1
+                ikey    = future_to_key[future]
+                sym     = sym_map.get(ikey, ikey)
+                done   += 1
+                err_msg = ""
                 try:
                     df = future.result()
                     ok = df is not None and not df.empty
                     if ok:
                         store_df(sym, interval, df)
-                except Exception:
-                    ok = False
-                yield done, total, sym, ok
+                    elif df is None:
+                        err_msg = "no data returned"
+                    else:
+                        err_msg = "empty dataframe"
+                except Exception as e:
+                    ok      = False
+                    err_msg = str(e)
+                yield done, total, sym, ok, err_msg
                 time.sleep(0.05)   # small delay between results
 
 # ═══════════════════════════════════════════════════════════════════════════════
