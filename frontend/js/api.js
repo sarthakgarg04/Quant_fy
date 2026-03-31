@@ -70,6 +70,28 @@ const API = (() => {
     return _get('/symbols', { interval });
   }
 
+  /* ── Crypto Scanner & Chart ──────────────────────────────────────────── */
+ 
+  /**
+   * Run the zone scanner against stored Binance perp data.
+   * Accepts identical params to scan() — same scanner engine,
+   * different data source and endpoint.
+   *
+   * @param {Object} params  — same keys as API.scan()
+   * @returns {Promise<{results: Array, count: number}>}
+   */
+  function cryptoScan(params) {
+    return _get("/crypto/scan", params);
+  }
+
+  function cryptoChart(base, params) {
+    return _get(`/crypto/chart/${encodeURIComponent(base)}`, params);
+  }
+
+  function cryptoIntervals() {
+    return _get("/crypto/intervals");
+  }
+
   /* ── Chart data ─────────────────────────────────────────── */
   function chartData(ticker, params) {
     return _get(`/chart/${encodeURIComponent(ticker)}`, params);
@@ -160,6 +182,9 @@ const API = (() => {
     storeList,
     storeDelete,
     storeSummary,
+    cryptoScan,
+    cryptoChart,
+    cryptoIntervals,
   };
 })();
 

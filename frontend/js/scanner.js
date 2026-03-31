@@ -24,6 +24,11 @@ const Scanner = (() => {
   let chartTF    = '1d';
   let currentRow = null;
 
+  let assetClass = "equity";   // "equity" | "crypto"
+ 
+  // Add this alongside SS_KEY:
+  const SS_ASSET_KEY = "qs_scanner_asset";
+
   const SS_ROWS_KEY = 'qs_scanner_rows_v1';
   const $  = id => document.getElementById(id);
   const $$ = sel => document.querySelectorAll(sel);
@@ -299,18 +304,131 @@ const Scanner = (() => {
     btn.className = 'seg-btn ' + (btn.dataset.v === 'buy' ? 'buy' : 'sell');
     _saveUIState();
   }
+
+
+  function setAsset(btn) {
+    assetClass = btn.dataset.v;  // 'equity' | 'crypto'
+    const isCrypto = assetClass === 'crypto';
+  
+    // Update asset segment buttons
+    document.querySelectorAll('#asset-seg .seg-btn').forEach(b => {
+      b.className = 'seg-btn' + (b.dataset.v === assetClass ? ' buy' : '');
+    });
+  
+    // Show/hide TF buttons based on data-asset attribute
+    document.querySelectorAll('#tfc-row .tfc').forEach(b => {
+      const attr = b.dataset.asset || 'both';
+      const visible = attr === 'both'
+        || (isCrypto  && attr === 'crypto')
+        || (!isCrypto && attr === 'equity');
+      b.style.display = visible ? '' : 'none';
+    });
+  
+    // Set sensible default active TF for the selected asset class
+    const defaultTF = isCrypto ? '15m' : '1d';
+    document.querySelectorAll('#tfc-row .tfc').forEach(b => {
+      b.classList.toggle('on', b.dataset.v === defaultTF && b.offsetParent !== null);
+    });
+  
+    // Show/hide crypto note
+    const note = document.getElementById('crypto-tf-note');
+    if (note) note.style.display = isCrypto ? 'block' : 'none';
+  
+    // Update asset badge in results header
+    const badge = document.getElementById('asset-badge');
+    if (badge) {
+      badge.textContent        = isCrypto ? '₿ CRYPTO' : 'EQUITY';
+      badge.style.background   = isCrypto ? 'rgba(245,158,11,0.12)' : 'rgba(99,102,241,0.12)';
+      badge.style.borderColor  = isCrypto ? 'rgba(245,158,11,0.3)'  : 'rgba(99,102,241,0.3)';
+      badge.style.color        = isCrypto ? '#f59e0b'                : 'var(--accent)';
+    }
+  
+    // Clear stale results from the other asset class
+    rows       = [];
+    currentRow = null;
+    activeIdx  = -1;
+    const rlist = document.getElementById('rlist');
+    if (rlist) rlist.innerHTML = `
+      <div class="empty-st">
+        <div class="e-ico">${isCrypto ? '₿' : '📊'}</div>
+        <div class="e-txt">Press Scan to find ${isCrypto ? 'crypto' : 'equity'} setups</div>
+        <div class="e-sub">Configure filters → Run Scan</div>
+      </div>`;
+    const rcnt = document.getElementById('rcnt');
+    if (rcnt) rcnt.textContent = '—';
+  
+    // Persist
+    try { sessionStorage.setItem('qs_scanner_asset', assetClass); } catch (_) {}
+  }
+
+
   function getDir() {
     const a = $('dir-seg').querySelector('.buy,.sell');
     return a?.dataset.v || 'buy';
   }
 
-  function setTFC(btn) {
-    $$('#tfc-row .tfc').forEach(b => b.classList.remove('on'));
-    btn.classList.add('on');
-    _saveUIState();
+  function setAsset(btn) {
+    assetClass = btn.dataset.v;   // "equity" | "crypto"
+  
+    // Button active state
+    document.querySelectorAll("#asset-seg .seg-btn").forEach(b => {
+      b.className = "seg-btn";
+    });
+    btn.className = "seg-btn buy";   // "buy" class gives the filled highlight style
+  
+    // Show correct TF row
+    const isC = assetClass === "crypto";
+    document.getElementById("tfc-equity").style.display = isC ? "none"  : "flex";
+    document.getElementById("tfc-crypto").style.display = isC ? "flex"  : "none";
+    document.getElementById("crypto-tf-note").style.display = isC ? "block" : "none";
+  
+    // Update asset badge in results header
+    const badge = document.getElementById("asset-badge");
+    if (badge) {
+      badge.textContent = isC ? "₿ CRYPTO" : "EQUITY";
+      badge.style.background   = isC ? "rgba(245,158,11,0.12)" : "rgba(99,102,241,0.12)";
+      badge.style.borderColor  = isC ? "rgba(245,158,11,0.3)"  : "rgba(99,102,241,0.3)";
+      badge.style.color        = isC ? "#f59e0b"               : "var(--accent)";
+    }
+  
+    // Clear results when switching asset class (stale data from other class)
+    rows      = [];
+    currentRow = null;
+    activeIdx  = -1;
+    document.getElementById("rlist").innerHTML = `
+      <div class="empty-st">
+        <div class="e-ico">${isC ? "₿" : "📊"}</div>
+        <div class="e-txt">Press Scan to find ${isC ? "crypto" : "equity"} setups</div>
+        <div class="e-sub">Configure filters → Run Scan</div>
+      </div>`;
+    document.getElementById("rcnt").textContent = "—";
+  
+    // Persist
+    try { sessionStorage.setItem(SS_ASSET_KEY, assetClass); } catch (_) {}
   }
+ 
+
+  function setTFC(btn) {
+    // Only deactivate buttons belonging to the current asset class
+    // Buttons carry data-asset="equity|crypto|both"
+    document.querySelectorAll('#tfc-row .tfc').forEach(b => {
+      const asset = b.dataset.asset || 'both';
+      if (asset === 'both' || asset === assetClass) {
+        b.classList.remove('on');
+      }
+    });
+    btn.classList.add('on');
+    if (typeof _saveUIState === 'function') _saveUIState();
+  }
+  
   function getScanTF() {
-    return $('tfc-row').querySelector('.tfc.on')?.dataset.v || '1d';
+    // Find the active button that is visible (not display:none)
+    const active = document.querySelector('#tfc-row .tfc.on');
+    if (active && active.offsetParent !== null) return active.dataset.v;
+    // Fallback: first visible button
+    const first = [...document.querySelectorAll('#tfc-row .tfc')]
+      .find(b => b.offsetParent !== null);
+    return first?.dataset.v || (assetClass === 'crypto' ? '15m' : '1d');
   }
 
   function onStrategyChange() {
@@ -413,49 +531,68 @@ const Scanner = (() => {
   ════════════════════════════════════════════════════════════ */
   async function runScan() {
     _updatePivotButtons();
-    const btn = $('scanbtn');
-    btn.disabled = true; btn.textContent = '⏳  Scanning…';
-    QS.setNavStatus('scanning…');
-    $('rlist').innerHTML = Array(6).fill(0).map(() =>
-      `<div class="shimrow"><div class="sh" style="height:11px;width:40%"></div>`+
-      `<div class="sh" style="height:9px;width:60%;margin-top:4px"></div></div>`
-    ).join('');
-    $('rcnt').textContent = '…';
+    const btn = document.getElementById("scanbtn");
+    btn.disabled    = true;
+    btn.textContent = "⏳  Scanning…";
+    QS.setNavStatus("scanning…");
+  
+    document.getElementById("rlist").innerHTML = Array(6).fill(0).map(() =>
+      `<div class="shimrow">
+        <div class="sh" style="height:11px;width:40%"></div>
+        <div class="sh" style="height:9px;width:60%;margin-top:4px"></div>
+      </div>`
+    ).join("");
+    document.getElementById("rcnt").textContent = "…";
     activeIdx = -1;
-
+  
     try {
-      const mo       = $('moen').checked;
-      const strategy = $('strat').value;
-      const atrTypes = (strategy === 'atr' || strategy === 'both') ? getAtrZoneTypes() : [];
-      const tr       = getSelTrends();
-
+      const mo  = document.getElementById("moen").checked;
+      const tr  = getSelTrends();
+  
+      // Params are identical for both equity and crypto — same scanner engine
       const params = {
-        direction:     getDir(),     interval:      getScanTF(),
-        order:         $('order').value, zone_lookback: $('zlb').value,
-        legout_mult:   $('legout').value, strategy,
-        atr_zone_types: atrTypes.join(','),
-        multi_order:   mo,
-        order_low:     $('mol').value, order_mid: $('mom').value,
-        order_high:    $('moh').value,
-        structure_low:  _getStructureParam('low'),
-        structure_mid:  mo ? _getStructureParam('mid')  : '',
-        structure_high: mo ? _getStructureParam('high') : '',
-        alignment_filter: $('align-filter')?.value || 'any',
+        direction:      getDir(),
+        interval:       getScanTF(),
+        order:          document.getElementById("order").value,
+        zone_lookback:  document.getElementById("zlb").value,
+        legout_mult:    document.getElementById("legout").value,
+        strategy:       document.getElementById("strat").value,
+        atr_zone_types: getAtrZoneTypes().join(","),
+        multi_order:    mo,
+        order_low:      document.getElementById("mol").value,
+        order_mid:      document.getElementById("mom").value,
+        order_high:     document.getElementById("moh").value,
+        structure_low:  _getStructureParam("low"),
+        structure_mid:  mo ? _getStructureParam("mid")  : "",
+        structure_high: mo ? _getStructureParam("high") : "",
+        alignment_filter: document.getElementById("align-filter")?.value || "any",
       };
       if (tr) params.trend_filter = tr;
-
-      const d = await API.scan(params);
+  
+      // Route to correct endpoint based on asset class
+      let d;
+      if (assetClass === "crypto") {
+        d = await API.cryptoScan(params);
+      } else {
+        d = await API.scan(params);
+      }
+  
       rows = d.results || [];
-      $('rcnt').textContent = rows.length;
+      document.getElementById("rcnt").textContent = rows.length;
       QS.setNavStatus(`${rows.length} found`, `${rows.length} setups`);
       _buildList();
       _saveUIState();
-      try { sessionStorage.setItem(SS_ROWS_KEY, JSON.stringify({ rows, activeIdx })); } catch(_){}
+      try {
+        sessionStorage.setItem(SS_ROWS_KEY, JSON.stringify({ rows, activeIdx }));
+      } catch (_) {}
+  
     } catch (e) {
-      $('rlist').innerHTML = `<div class="empty-st"><span style="color:var(--red)">⚠ ${e.message}</span></div>`;
-      QS.setNavStatus('error');
+      document.getElementById("rlist").innerHTML =
+        `<div class="empty-st"><span style="color:var(--red)">⚠ ${e.message}</span></div>`;
+      QS.setNavStatus("error");
     } finally {
-      btn.disabled = false; btn.textContent = '▶  Run Scan';
+      btn.disabled    = false;
+      btn.textContent = "▶  Run Scan";
     }
   }
 
@@ -535,6 +672,29 @@ const Scanner = (() => {
     }).join('');
   }
 
+  function _displayTicker(ticker) {
+    if (assetClass === "crypto") {
+      return ticker.replace("_PERP", "");
+    }
+    return ticker.replace(".NS", "").replace(".BO", "");
+  }
+  
+  /**
+   * Format price appropriately for the asset class.
+   * Equity: Indian Rupee formatting  (QS.inr)
+   * Crypto: USD formatting with dynamic decimal places
+   *   BTC at ~65000 → "65,432.10"
+   *   DOGE at ~0.15 → "0.1523"
+   */
+  function _formatPrice(price) {
+    if (assetClass !== "crypto") return QS.inr(price);
+    if (!price) return "—";
+    if (price >= 1000)  return "$" + price.toLocaleString("en-US", { maximumFractionDigits: 2 });
+    if (price >= 1)     return "$" + price.toFixed(4);
+    return "$" + price.toFixed(6);
+  }
+
+
   function _markActive(i) {
     $$('.sr.on').forEach(e => e.classList.remove('on'));
     const el = document.querySelector(`.sr[data-i="${i}"]`);
@@ -571,6 +731,22 @@ const Scanner = (() => {
   // free UI inputs in explore mode
   function _buildChartParams(row) {
     const sp = row.scan_params || {};
+ 
+    // Crypto always uses the crypto chart endpoint — override the API call
+    // via a flag we check in selStock() below
+    if (assetClass === "crypto") {
+      return {
+        interval:      chartTF,
+        order:         sp.order         ?? document.getElementById("order").value,
+        legout_mult:   sp.legout_mult   ?? document.getElementById("legout").value,
+        strategy:      sp.strategy      ?? document.getElementById("strat").value,
+        zone_lookback: sp.zone_lookback ?? document.getElementById("zlb").value,
+        multi_order:   sp.multi_order   ?? document.getElementById("moen").checked,
+        order_low:     sp.order_low     ?? document.getElementById("mol").value,
+        order_mid:     sp.order_mid     ?? document.getElementById("mom").value,
+        order_high:    sp.order_high    ?? document.getElementById("moh").value,
+      };
+    }
 
     if (_inScanContext(row) && sp.order) {
       // ── SCAN CONTEXT: use lineage-locked params ──────────────────────
@@ -634,6 +810,9 @@ const Scanner = (() => {
   /* ────────────────────────────────────────────────────────── */
 
   async function selStock(i, fromTFButton = false) {
+    console.log("selStock called", i);
+    console.log("ROW DATA:", rows[i]);
+    console.log("Loading chart for:", rows[i].ticker);
     const row = rows[i];
     if (!row) {
       API.logEvent('warn', 'scanner', 'selStock: invalid index', { i, rowsLen: rows.length });
@@ -667,8 +846,19 @@ const Scanner = (() => {
     currentRow = { ...row, _tf: chartTF };
 
     // Header
-    $('cptk').textContent = row.ticker.replace('.NS', '');
-    $('cppr').textContent = QS.inr(row.close);
+    // $('cptk').textContent = row.ticker.replace('.NS', '');
+    // $('cppr').textContent = QS.inr(row.close);
+
+    $('cptk').textContent = assetClass === 'crypto'
+      ? row.ticker.replace('_PERP','')
+      : row.ticker.replace('.NS','').replace('.BO','');
+    $('cppr').textContent = assetClass === 'crypto'
+      ? (row.close >= 1000 ? '$' + row.close.toLocaleString('en-US',{maximumFractionDigits:2})
+        : row.close >= 1   ? '$' + row.close.toFixed(4)
+        : '$' + row.close.toFixed(6))
+      : QS.inr(row.close);
+
+
     const te = $('cptr');
     te.textContent   = QS.trendLabel(row.trend);
     te.className     = 'tbadge ' + QS.trendClass(row.trend);
@@ -692,15 +882,26 @@ const Scanner = (() => {
     _updateContextBadge(row);
 
     // Load chart with correct params for current mode
-    await Chart.load(
-      row.ticker,
-      _buildChartParams(row),
-      row.direction || getDir(),
-      _getZoneLegInTs(row),
-    );
+    async function _loadChartForRow(row, direction, zoneLeginTs) {
+      if (assetClass === "crypto") {
+        // Strip _PERP so the API receives "BTCUSDT" or "BTC"
+        const cryptoBase = row.ticker.replace("_PERP", "");
+        await Chart.load(
+          cryptoBase,
+          _buildChartParams(row),
+          direction,
+          zoneLeginTs,
+          { endpoint: "crypto" },   // Chart.js uses this to call /api/crypto/chart
+        );
+      } else {
+        await Chart.load(row.ticker, _buildChartParams(row), direction, zoneLeginTs);
+      }
+    }
 
     API.logEvent('info', 'scanner', 'Chart loaded', { ticker: row.ticker, tf: chartTF });
     try { sessionStorage.setItem(SS_ROWS_KEY, JSON.stringify({ rows, activeIdx })); } catch (_) {}
+
+    await _loadChartForRow(row, getDir(), row.zone_legin_ts);
   }
 
   function setChartTF(tf, btn) {
@@ -723,6 +924,66 @@ const Scanner = (() => {
     } else {
       API.logEvent('warn', 'scanner', 'TF changed but no active symbol', { tf });
     }
+  }
+
+  /* ════════════════════════════════════════════════════════════
+     PIVOT DRILL-DOWN — isolate one order level on the chart
+  ════════════════════════════════════════════════════════════ */
+
+  /**
+   * Called when user clicks a level row in the drawer.
+   * Isolates that level's pivot series on the chart and scrolls
+   * to the most recent pivots for that level.
+   *
+   * level: 'H' | 'M' | 'L'
+   * el:    the clicked row element (for active-state styling)
+   */
+  function _focusPivotLevel(level, el) {
+    // Update active state styling on drawer rows
+    document.querySelectorAll('#dws [data-level]').forEach(row => {
+      row.classList.remove('pf-active');
+      row.style.background   = 'var(--s2)';
+      row.style.borderColor  = 'var(--border)';
+    });
+    el.classList.add('pf-active');
+    el.style.background  = 'var(--s3)';
+    el.style.borderColor = 'var(--border2)';
+
+    // Isolate this level on the chart — dim all others
+    Chart.setActiveLevels([level]);
+
+    // Sync the pivot-order-btns in the chart header
+    document.querySelectorAll('#pivot-order-btns .pob').forEach(b => {
+      b.classList.toggle('on', b.dataset.level === level);
+    });
+
+    // Scroll chart to show the most recent pivots for this level
+    Chart.scrollToLevel(level);
+  }
+
+  /**
+   * Reset to showing all pivot levels — called by the ↺ all button.
+   */
+  function _resetPivotFocus() {
+    // Clear active state on drawer rows
+    document.querySelectorAll('#dws [data-level]').forEach(row => {
+      row.classList.remove('pf-active');
+      row.style.background  = 'var(--s2)';
+      row.style.borderColor = 'var(--border)';
+    });
+
+    // Restore all levels on chart
+    const moEnabled = $('moen').checked;
+    const allLevels = moEnabled ? ['H', 'M', 'L'] : ['single'];
+    Chart.setActiveLevels(allLevels);
+
+    // Sync pivot-order-btns
+    document.querySelectorAll('#pivot-order-btns .pob').forEach(b => {
+      b.classList.add('on');
+    });
+
+    // Scroll back to latest candle
+    Chart.scrollToLatest();
   }
 
   /* ════════════════════════════════════════════════════════════
@@ -773,18 +1034,42 @@ const Scanner = (() => {
               color:${alnColor};margin-left:4px">
           ${aln} · 🟢${bull} 🔴${bear}
         </span>
+        <button onclick="Scanner._resetPivotFocus()" title="Reset to show all levels"
+          style="margin-left:6px;padding:1px 6px;font-size:9px;font-family:var(--mono);
+                 background:var(--s2);border:1px solid var(--border);border-radius:3px;
+                 color:var(--muted);cursor:pointer;transition:all .12s"
+          onmouseover="this.style.color='var(--text)';this.style.borderColor='var(--border2)'"
+          onmouseout="this.style.color='var(--muted)';this.style.borderColor='var(--border)'">
+          ↺ all
+        </button>
+      </div>
+      <div style="font-size:9px;color:var(--muted2);margin-bottom:8px;font-family:var(--mono)">
+        Click a level to isolate its pivots on the chart
       </div>
       ${levels.map(lv => {
-        const col  = structColor(lv.state);
-        const slbl = _structLabel(lv.state);
-        return `<div style="display:grid;grid-template-columns:70px 1fr auto;
-                     align-items:center;gap:8px;margin-bottom:7px">
+        const col    = structColor(lv.state);
+        const slbl   = _structLabel(lv.state);
+        // Map label to chart level key: HIGH→H, MID→M, LOW→L
+        const chartLv = lv.lbl === 'HIGH' ? 'H' : lv.lbl === 'MID' ? 'M' : 'L';
+        return `
+        <div data-level="${chartLv}"
+             onclick="Scanner._focusPivotLevel('${chartLv}', this)"
+             style="display:grid;grid-template-columns:70px 1fr auto;
+                    align-items:center;gap:8px;margin-bottom:5px;
+                    padding:7px 9px;border-radius:6px;cursor:pointer;
+                    border:1px solid var(--border);background:var(--s2);
+                    transition:all .15s"
+             onmouseover="this.style.background='var(--s3)';this.style.borderColor='var(--border2)'"
+             onmouseout="if(!this.classList.contains('pf-active')){this.style.background='var(--s2)';this.style.borderColor='var(--border)'}">
           <span class="molk ${lv.cls}" style="font-size:9px">${lv.lbl}(${lv.order||'?'})</span>
           <div>
             <div style="font-size:11px;font-weight:600;color:${col}">${slbl}</div>
-            <div style="font-size:9px;color:var(--muted2);margin-top:1px">${lv.pair||'—'}</div>
+            <div style="font-size:9px;color:var(--muted2);margin-top:1px;font-family:var(--mono)">${lv.pair||'—'}</div>
           </div>
-          <div style="width:6px;height:6px;border-radius:50%;background:${col};flex-shrink:0"></div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:3px">
+            <div style="width:6px;height:6px;border-radius:50%;background:${col}"></div>
+            <span style="font-size:8px;color:var(--muted);font-family:var(--mono)">focus</span>
+          </div>
         </div>`;
       }).join('')}
     </div>`;
@@ -940,6 +1225,13 @@ const Scanner = (() => {
   ════════════════════════════════════════════════════════════ */
   async function init() {
     QS.renderNav('scanner', 'nst', 'nbadge');
+    function _restoreAssetClass() {
+      const saved = sessionStorage.getItem(SS_ASSET_KEY);
+      if (saved === "crypto") {
+        const btn = document.querySelector('#asset-seg [data-v="crypto"]');
+        if (btn) setAsset(btn);
+      }
+    }
 
     await _loadStateGroups();
     _renderStructureFilters();
@@ -985,9 +1277,11 @@ const Scanner = (() => {
   /* ── Public surface ─────────────────────────────────────── */
   return {
     init, runScan, selStock, sortBy, setChartTF,
-    toggleSB, stp, setDir, setTFC,
+    toggleSB, stp, setDir, setTFC, setAsset,
     toggleTDD, allTrends, toggleMO, onStrategyChange,
     openDrawer, closeDrawer,
+    // Pivot drill-down — called from drawer onclick
+    _focusPivotLevel, _resetPivotFocus,
     // Structure dropdown handlers — exposed for inline HTML onchange/onclick
     __sfToggle, __sfAllToggle, __sfChange,
     // Exposed for align-filter onchange in HTML

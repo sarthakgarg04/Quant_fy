@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/components.css">
 <link rel="stylesheet" href="/css/layout.css">
+<link rel="stylesheet" href="/css/crypto.css">
 </head>
 <body>
 
@@ -14,11 +15,13 @@
 
 <div class="df-main">
 
-  <!-- ── LEFT: controls ── -->
+  <!-- ══════════════════════════════════════════════════════════
+       LEFT PANEL — controls
+  ══════════════════════════════════════════════════════════ -->
   <div class="df-left">
 
-    <!-- Auth -->
-    <div class="df-sec">
+    <!-- ── Auth (Upstox only) ──────────────────────────────── -->
+    <div class="df-sec" id="auth-sec">
       <div class="slbl" style="margin-bottom:10px">Upstox Authentication</div>
       <div class="auth-box" id="auth-box">
         <div class="auth-icon" id="auth-icon">🔒</div>
@@ -38,18 +41,24 @@
       </div>
     </div>
 
-    <!-- Source -->
+    <!-- ── Source selector ─────────────────────────────────── -->
     <div class="df-sec">
       <div class="slbl" style="margin-bottom:8px">Data Source</div>
       <div class="src-toggle">
-        <button class="src-btn active" id="src-up" onclick="DataFetch.setSource('upstox')">Upstox API</button>
-        <button class="src-btn"        id="src-yf" onclick="DataFetch.setSource('yfinance')">yfinance</button>
+        <button class="src-btn active" id="src-up"
+                onclick="DataFetch.setSource('upstox')">Upstox API</button>
+        <button class="src-btn"        id="src-yf"
+                onclick="DataFetch.setSource('yfinance')">yfinance</button>
+        <button class="src-btn"        id="src-crypto"
+                onclick="DataFetch.setSource('crypto')">₿ Binance Perp</button>
       </div>
-      <div style="font-size:11px;color:var(--muted);margin-top:6px" id="src-hint">Primary source. Requires valid Upstox token.</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:6px" id="src-hint">
+        Primary source. Requires valid Upstox token.
+      </div>
     </div>
 
-    <!-- Timeframe -->
-    <div class="df-sec">
+    <!-- ── Timeframe (Upstox / yfinance only) ──────────────── -->
+    <div class="df-sec" id="tf-sec">
       <div class="slbl" style="margin-bottom:8px">Timeframe</div>
       <div class="tf-pills">
         <button class="tf-pill active" data-tf="1d"  onclick="DataFetch.selTF(this)">Daily 1D</button>
@@ -62,7 +71,7 @@
       </div>
     </div>
 
-    <!-- Universe -->
+    <!-- ── Universe (Upstox) ───────────────────────────────── -->
     <div class="df-sec" id="univ-sec">
       <div class="slbl" style="margin-bottom:6px">Universe (Upstox)</div>
       <select id="univ-sel" class="ctrl">
@@ -71,6 +80,8 @@
         <option value="NSE_EQ,BSE_EQ">NSE + BSE</option>
       </select>
     </div>
+
+    <!-- ── Watchlist (yfinance) ─────────────────────────────── -->
     <div class="df-sec" id="wl-sec" style="display:none">
       <div class="slbl" style="margin-bottom:6px">Watchlist (yfinance)</div>
       <select id="wl-sel" class="ctrl">
@@ -81,22 +92,68 @@
       </select>
     </div>
 
-    <!-- Force refresh -->
-    <div class="df-sec" style="display:flex;align-items:center;justify-content:space-between">
+    <!-- ── Crypto config ────────────────────────────────────── -->
+    <div class="df-sec" id="crypto-sec" style="display:none">
+
+      <!-- Info banner — no auth needed -->
+      <div style="
+        background: rgba(245,158,11,0.08);
+        border: 1px solid rgba(245,158,11,0.25);
+        border-radius: 8px;
+        padding: 10px 12px;
+        margin-bottom: 12px;
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+      ">
+        <span style="font-size:16px;line-height:1.2">₿</span>
+        <div>
+          <div style="font-size:12px;font-weight:600;color:var(--fg)">Binance Perpetual Futures</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">
+            Fetches 1-minute OHLCV. No API key required.
+            All higher timeframes (3m, 5m, 15m, 1h, 4h) are
+            derived locally from the 1m store.
+          </div>
+        </div>
+      </div>
+
+      <!-- Symbols -->
+      <div class="slbl" style="margin-bottom:6px">Symbols</div>
+      <div id="crypto-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">
+        <!-- chips rendered by JS -->
+      </div>
+
+      <!-- Lookback period -->
+      <div class="slbl" style="margin-bottom:6px;margin-top:4px">History Lookback</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+        <button class="lookback-btn active" data-days="365"  onclick="DataFetch.setLookback(this)">1 Year</button>
+        <button class="lookback-btn"        data-days="730"  onclick="DataFetch.setLookback(this)">2 Years</button>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:6px">
+        Applies only on first fetch. Subsequent runs append the gap only.
+      </div>
+    </div>
+
+    <!-- ── Force re-fetch (Upstox / yfinance) ──────────────── -->
+    <div class="df-sec" id="force-sec"
+         style="display:flex;align-items:center;justify-content:space-between">
       <div>
         <div class="slbl" style="margin-bottom:0">Force Re-fetch</div>
         <div style="font-size:11px;color:var(--muted);margin-top:2px">Bypass local cache</div>
       </div>
-      <input type="checkbox" id="force-chk" style="width:17px;height:17px;cursor:pointer;accent-color:var(--accent)">
+      <input type="checkbox" id="force-chk"
+             style="width:17px;height:17px;cursor:pointer;accent-color:var(--accent)">
     </div>
 
-    <!-- Fetch button + cancel -->
+    <!-- ── Action buttons ──────────────────────────────────── -->
     <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px">
-      <button class="btn btn-primary" style="flex:1;padding:9px" id="fetch-btn" onclick="DataFetch.startFetch()">▶ Start Fetch</button>
-      <button class="btn btn-danger btn-sm" id="cancel-btn" onclick="DataFetch.cancelFetch()">✕ Cancel</button>
+      <button class="btn btn-primary" style="flex:1;padding:9px"
+              id="fetch-btn" onclick="DataFetch.startFetch()">▶ Start Fetch</button>
+      <button class="btn btn-danger btn-sm"
+              id="cancel-btn" onclick="DataFetch.cancelFetch()">✕ Cancel</button>
     </div>
 
-    <!-- Progress -->
+    <!-- ── Progress panel ──────────────────────────────────── -->
     <div style="padding:14px 16px;flex:1;display:flex;flex-direction:column;gap:10px;min-height:0">
 
       <div class="reconnect-banner" id="reconnect-banner">
@@ -112,28 +169,51 @@
           <span class="slbl" style="margin-bottom:0" id="prog-title">Ready</span>
           <span class="live-pill" id="live-pill"><span class="live-dot"></span>Live</span>
         </div>
-        <span id="prog-count" style="font-size:11px;color:var(--muted);font-family:var(--mono)"></span>
+        <span id="prog-count"
+              style="font-size:11px;color:var(--muted);font-family:var(--mono)"></span>
       </div>
 
       <div class="prog-outer"><div class="prog-inner" id="prog-bar"></div></div>
       <div class="prog-log" id="prog-log"></div>
-    </div>
 
-  </div><!-- df-left -->
+    </div><!-- /progress panel -->
 
-  <!-- ── RIGHT: store browser ── -->
+  </div><!-- /df-left -->
+
+
+  <!-- ══════════════════════════════════════════════════════════
+       RIGHT PANEL — store browser
+  ══════════════════════════════════════════════════════════ -->
   <div class="df-right">
+
     <div class="store-header">
       <span style="font-size:15px;font-weight:700">📦 Local Data Store</span>
+
+      <!-- Source tabs: Equity | Crypto -->
+      <div style="display:flex;gap:4px;margin-left:12px">
+        <button class="store-src-tab active" id="tab-equity"
+                onclick="DataFetch.setStoreTab('equity')">Equity</button>
+        <button class="store-src-tab"        id="tab-crypto"
+                onclick="DataFetch.setStoreTab('crypto')">₿ Crypto</button>
+      </div>
+
       <div style="margin-left:auto;display:flex;gap:5px;flex-wrap:wrap" id="itv-tabs"></div>
       <button class="btn btn-ghost btn-sm" onclick="DataFetch.refreshStore()">↻ Refresh</button>
     </div>
+
+    <!-- Stats bar -->
     <div class="store-stats">
       <div><div class="ss-l">Total Symbols</div><div class="ss-v" id="ss-tot">–</div></div>
       <div><div class="ss-l">Storage Used</div><div class="ss-v" id="ss-mb">–</div></div>
-      <div><div class="ss-l">Timeframes</div><div class="ss-v" id="ss-ivs">–</div></div>
-      <div><div class="ss-l">Cache Path</div><div class="ss-v" style="font-size:11px;font-family:var(--mono)">data_store/</div></div>
+      <div><div class="ss-l">Timeframes</div> <div class="ss-v" id="ss-ivs">–</div></div>
+      <div>
+        <div class="ss-l">Cache Path</div>
+        <div class="ss-v" id="ss-path"
+             style="font-size:11px;font-family:var(--mono)">data_store/</div>
+      </div>
     </div>
+
+    <!-- Table body -->
     <div class="store-scroll" id="store-body">
       <div class="empty-st" style="padding:60px 0">
         <div class="e-ico">🗄</div>
@@ -141,9 +221,10 @@
         <div class="e-sub">Use the controls on the left to fetch data</div>
       </div>
     </div>
-  </div>
 
-</div><!-- df-main -->
+  </div><!-- /df-right -->
+
+</div><!-- /df-main -->
 
 <script src="/js/shared.js"></script>
 <script src="/js/api.js"></script>

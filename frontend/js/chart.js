@@ -135,7 +135,7 @@ const Chart = (() => {
   }
 
   /* ── load ─────────────────────────────────────────────────── */
-  async function load(ticker, params, direction, activeLegInTs) {
+  async function load(ticker, params, direction, activeLegInTs, opts = {}) {
     if (_broken) _ready = false;
     init();
 
@@ -145,7 +145,9 @@ const Chart = (() => {
     try {
       let d;
       try {
-        d = await API.chartData(ticker, { ...params, multi_order: true });
+        d = opts.endpoint === 'crypto'
+          ? await API.cryptoChart(ticker, { ...params, multi_order: true })
+          : await API.chartData(ticker,   { ...params, multi_order: true });
       } catch (e) {
         console.warn('[chart] fetch failed:', ticker, e.message);
         return;
@@ -160,6 +162,25 @@ const Chart = (() => {
       /* ── 1. Candles ────────────────────────────────────────── */
       const candles = _sanitise(d.candles);
       if (!candles.length) { console.warn('[chart] empty after sanitise'); return; }
+
+      function getPrecision(price) {
+        if (price >= 1000) return 2;
+        if (price >= 1)    return 4;
+        if (price >= 0.1)  return 5;
+        return 6;
+      }
+
+      const lastPrice = candles[candles.length - 1].close;
+      const precision = getPrecision(lastPrice);
+
+      // Apply dynamic precision BEFORE setting data
+      _cs.applyOptions({
+        priceFormat: {
+          type: 'price',
+          precision: precision,
+          minMove: Math.pow(10, -precision),
+        }
+      });
 
       try { _cs.setData(candles); }
       catch (e) { console.error('[chart] cs.setData:', e.message); _broken = true; return; }
@@ -300,6 +321,7 @@ async function _renderPivots(d, ticker, params, candles) {
     try { _chart.removeSeries(s); } catch(_) {}
     return [];
   }
+  s._pivotData = clean;   // cache for scrollToLevel()
 
   try {
     const markers = _sanitiseMarkers(clean.map(p => ({
@@ -444,14 +466,63 @@ async function _renderPivots(d, ticker, params, candles) {
     } catch(_) {}
   }
 
+  function scrollToLevel(level) {
+    if (!_chart) return;
+ 
+    // _pivotSeries[level] is an array of LWC series objects.
+    // Each series was built from the pivot list via _addPivotSeries.
+    // We stored the clean pivot array on the series as ._pivotData
+    // during _addPivotSeries — see the patch note below.
+    // If that property isn't present, fall back to scrollToLatest.
+ 
+    const seriesArr = _pivotSeries[level];
+    if (!seriesArr || !seriesArr.length) {
+      scrollToLatest();
+      return;
+    }
+ 
+    // Get the pivot timestamps from the series data
+    // LWC series expose .data() in some versions; use our cached _pivotData
+    const s = seriesArr[0];
+    const pivotData = s._pivotData;   // set in _addPivotSeries patch below
+ 
+    if (!pivotData || !pivotData.length) {
+      scrollToLatest();
+      return;
+    }
+ 
+    // Most recent pivot is the last entry (data is sorted ascending)
+    const lastPivotTime = pivotData[pivotData.length - 1].time;
+ 
+    try {
+      // Convert unix timestamp to chart logical index and scroll to it
+      const coord = _chart.timeScale().timeToCoordinate(lastPivotTime);
+      if (coord !== null && isFinite(coord)) {
+        // Scroll so latest pivot is visible with right offset
+        _chart.timeScale().scrollToRealTime();
+        requestAnimationFrame(() => {
+          try {
+            // Position so the last pivot has some breathing room on the right
+            const rightBars = 15;
+            _chart.timeScale().scrollToPosition(rightBars, false);
+          } catch(_) {}
+        });
+      } else {
+        scrollToLatest();
+      }
+    } catch(_) {
+      scrollToLatest();
+    }
+  }
+
   /* ── Public ──────────────────────────────────────────────── */
   return {
-    init, load,
-    toggleLevel, setActiveLevels,
-    bustCache, scrollToLatest,
-    get activeLevels() { return [..._activeLevels]; },
-    get moColors()     { return MO_COLORS; },
-  };
+       init, load,
+       toggleLevel, setActiveLevels,
+       bustCache, scrollToLatest, scrollToLevel,
+       get activeLevels() { return [..._activeLevels]; },
+       get moColors()     { return MO_COLORS; },
+     };
 })();
 
 window.Chart = Chart;

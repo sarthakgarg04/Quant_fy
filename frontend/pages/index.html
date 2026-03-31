@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/components.css">
 <link rel="stylesheet" href="/css/layout.css">
+<link rel="stylesheet" href="/css/crypto.css">
 </head>
 <body>
 
@@ -25,6 +26,15 @@
     </div>
     <div id="sb-scroll">
 
+      <!-- Asset Class -->
+      <div>
+        <div class="slbl">Asset Class</div>
+        <div class="seg" id="asset-seg">
+          <button class="seg-btn buy" data-v="equity" onclick="Scanner.setAsset(this)">📈 Equity</button>
+          <button class="seg-btn"     data-v="crypto" onclick="Scanner.setAsset(this)">₿ Crypto</button>
+        </div>
+      </div>
+
       <!-- Direction -->
       <div>
         <div class="slbl">Direction</div>
@@ -34,21 +44,27 @@
         </div>
       </div>
 
-      <!-- Timeframe -->
+      <!-- Timeframe — single #tfc-row, buttons tagged data-asset="equity|crypto|both" -->
       <div>
         <div class="slbl">Timeframe</div>
         <div class="tfc-row" id="tfc-row">
-          <button class="tfc on" data-v="1d"  onclick="Scanner.setTFC(this)">1D</button>
-          <button class="tfc"    data-v="1wk" onclick="Scanner.setTFC(this)">1W</button>
-          <button class="tfc"    data-v="1h"  onclick="Scanner.setTFC(this)">1H</button>
-          <button class="tfc"    data-v="4h"  onclick="Scanner.setTFC(this)">4H</button>
-          <button class="tfc"    data-v="15m" onclick="Scanner.setTFC(this)">15m</button>
-          <button class="tfc"    data-v="5m"  onclick="Scanner.setTFC(this)">5m</button>
-          <button class="tfc"    data-v="1m"  onclick="Scanner.setTFC(this)">1m</button>
+          <button class="tfc on" data-v="1d"  data-asset="equity" onclick="Scanner.setTFC(this)">1D</button>
+          <button class="tfc"    data-v="1wk" data-asset="equity" onclick="Scanner.setTFC(this)">1W</button>
+          <button class="tfc"    data-v="4h"  data-asset="both"   onclick="Scanner.setTFC(this)">4H</button>
+          <button class="tfc"    data-v="1h"  data-asset="both"   onclick="Scanner.setTFC(this)">1H</button>
+          <button class="tfc"    data-v="15m" data-asset="both"   onclick="Scanner.setTFC(this)">15m</button>
+          <button class="tfc"    data-v="5m"  data-asset="both"   onclick="Scanner.setTFC(this)">5m</button>
+          <button class="tfc"    data-v="1m"  data-asset="both"   onclick="Scanner.setTFC(this)">1m</button>
+          <button class="tfc"    data-v="3m"  data-asset="crypto" style="display:none" onclick="Scanner.setTFC(this)">3m</button>
+        </div>
+        <div id="crypto-tf-note" style="display:none;font-size:10px;color:var(--muted);margin-top:6px;
+             padding:5px 8px;background:rgba(245,158,11,0.06);
+             border:1px solid rgba(245,158,11,0.15);border-radius:5px;line-height:1.5">
+          ₿ All TFs derived from 1m store — no extra fetch needed.
         </div>
       </div>
 
-      <!-- Strategy -->
+      <!-- Zone Strategy -->
       <div>
         <div class="slbl">Zone Strategy</div>
         <select id="strat" class="ctrl" onchange="Scanner.onStrategyChange()">
@@ -57,123 +73,88 @@
           <option value="both">Both Methods</option>
           <option value="trend_only">Trend Only (no zone)</option>
         </select>
-        <!-- ATR sub-type -->
         <div id="atr-sub-row" style="display:flex;gap:10px;margin-top:8px;padding:8px 10px;
-             background:var(--s2);border:1px solid var(--border);border-radius:var(--r2);
-             flex-wrap:wrap">
-          <span style="font-size:10px;font-family:var(--mono);color:var(--muted2);
-                text-transform:uppercase;letter-spacing:.8px;align-self:center;flex-shrink:0">
-            Types:
-          </span>
+             background:var(--s2);border:1px solid var(--border);border-radius:var(--r2);flex-wrap:wrap">
+          <span style="font-size:10px;font-family:var(--mono);color:var(--muted2);text-transform:uppercase;
+                letter-spacing:.8px;align-self:center;flex-shrink:0">Types:</span>
           <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;font-family:var(--mono)">
-            <input type="checkbox" id="atr-rbr" checked style="accent-color:#22c55e">
-            <span style="color:#22c55e;font-weight:600">RBR</span>
+            <input type="checkbox" id="atr-rbr" checked style="accent-color:var(--accent);width:13px;height:13px"><span>RBR</span>
           </label>
           <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;font-family:var(--mono)">
-            <input type="checkbox" id="atr-dbr" checked style="accent-color:#2dd4bf">
-            <span style="color:#2dd4bf;font-weight:600">DBR</span>
+            <input type="checkbox" id="atr-dbr" checked style="accent-color:var(--accent);width:13px;height:13px"><span>DBR</span>
           </label>
-          <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;font-family:var(--mono)" id="atr-dbd-wrap">
-            <input type="checkbox" id="atr-dbd" checked style="accent-color:#ef4444">
-            <span style="color:#ef4444;font-weight:600">DBD</span>
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;font-family:var(--mono)">
+            <input type="checkbox" id="atr-dbd" style="accent-color:var(--accent);width:13px;height:13px"><span>DBD</span>
           </label>
-          <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;font-family:var(--mono)" id="atr-rbd-wrap">
-            <input type="checkbox" id="atr-rbd" checked style="accent-color:#f97316">
-            <span style="color:#f97316;font-weight:600">RBD</span>
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;font-family:var(--mono)">
+            <input type="checkbox" id="atr-rbd" style="accent-color:var(--accent);width:13px;height:13px"><span>RBD</span>
           </label>
         </div>
-        <!-- Trend-only notice -->
-        <div id="trend-only-notice" style="display:none;margin-top:8px;padding:8px 10px;
-             background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.25);
-             border-radius:var(--r2);font-size:11px;color:var(--muted);line-height:1.5">
-          📈 <strong style="color:var(--accent)">Trend Only</strong> — filters by structure
-          state, no zone required.
+        <div id="trend-only-notice" style="display:none;margin-top:6px;font-size:11px;color:var(--muted);
+             padding:6px 8px;background:var(--s2);border:1px solid var(--border);border-radius:var(--r2)">
+          No zone required — ranks by ATR volatility.
         </div>
       </div>
 
-      <!-- Parameters -->
+      <!-- Pivot Order — #order is hidden value holder; buttons render in chart header -->
       <div>
-        <div class="slbl">Parameters</div>
-        <div style="display:flex;gap:6px">
-          <div class="field" style="flex:1">
-            <span class="ctrl-label">Pivot Order</span>
-            <div class="stpw">
-              <button class="stpb" onclick="Scanner.stp('order',-1)">−</button>
-              <input type="number" id="order" value="5" min="1" max="30">
-              <button class="stpb" onclick="Scanner.stp('order',1)">+</button>
-            </div>
-          </div>
-          <div class="field" style="flex:1">
-            <span class="ctrl-label">Lookback</span>
-            <div class="stpw">
-              <button class="stpb" onclick="Scanner.stp('zlb',-5)">−</button>
-              <input type="number" id="zlb" value="20" min="5" max="500">
-              <button class="stpb" onclick="Scanner.stp('zlb',5)">+</button>
-            </div>
+        <input type="number" id="order" value="5" style="display:none">
+        <span id="pivot-order-legend" style="display:none"></span>
+      </div>
+
+      <!-- Zone Parameters -->
+      <div>
+        <div class="field">
+          <span class="ctrl-label">Zone Lookback (bars)</span>
+          <div class="num-row">
+            <button class="adj" onclick="Scanner.stp('zlb',-1)">−</button>
+            <input type="number" id="zlb" class="ctrl" value="20" style="padding:5px 8px;font-size:12px">
+            <button class="adj" onclick="Scanner.stp('zlb',1)">+</button>
           </div>
         </div>
-        <div class="field" style="margin-top:6px">
-          <span class="ctrl-label">Legout × ATR</span>
-          <div class="stpw">
-            <button class="stpb" onclick="Scanner.stp('legout',-0.05)">−</button>
-            <input type="number" id="legout" value="1.35" step="0.05" min="0.5" max="5">
-            <button class="stpb" onclick="Scanner.stp('legout',0.05)">+</button>
+        <div class="field" style="margin-top:8px">
+          <span class="ctrl-label">Leg-out Multiplier</span>
+          <div class="num-row">
+            <button class="adj" onclick="Scanner.stp('legout',-0.05)">−</button>
+            <input type="number" id="legout" class="ctrl" value="1.35" step="0.05" style="padding:5px 8px;font-size:12px">
+            <button class="adj" onclick="Scanner.stp('legout',0.05)">+</button>
           </div>
         </div>
       </div>
 
-      <!-- Trend label filter (legacy pre-filter, optional) -->
+      <!-- Trend Filter -->
       <div>
-        <div class="slbl">Trend Label Filter</div>
-        <div class="tdw">
-          <button class="trig" id="ttrig" onclick="Scanner.toggleTDD(event)">
+        <div class="slbl">Trend Filter</div>
+        <div style="position:relative">
+          <button class="ctrl" id="ttrig" style="width:100%;text-align:left;cursor:pointer"
+                  onclick="Scanner.toggleTDD(event)">
             <span id="tlbl">All trends</span>
-            <span class="tarr">▼</span>
+            <span style="float:right;opacity:.5">▾</span>
           </button>
           <div class="tdd" id="tdd">
-            <div style="padding:7px 12px;border-bottom:1px solid var(--border)">
-              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--accent);font-family:var(--mono)">
-                <input type="checkbox" id="all-t" checked onchange="Scanner.allTrends(this)"> All trends
-              </label>
-            </div>
-            <div class="tdg">Bullish</div>
-            <div class="tdo"><input type="checkbox" class="tc" value="strong_uptrend"      checked><span>Strong uptrend</span></div>
-            <div class="tdo"><input type="checkbox" class="tc" value="continuous_uptrend"  checked><span>Continuous uptrend</span></div>
-            <div class="tdo"><input type="checkbox" class="tc" value="up"                  checked><span>Up</span></div>
-            <div class="tdo"><input type="checkbox" class="tc" value="semi-up"             checked><span>Semi-up</span></div>
-            <div class="tdo"><input type="checkbox" class="tc" value="weakening_uptrend"   checked><span>Weakening uptrend</span></div>
-            <div class="tdo"><input type="checkbox" class="tc" value="bullish_mitigation"  checked><span>Bullish mitigation</span></div>
-            <div class="tdg" style="margin-top:4px">Neutral</div>
-            <div class="tdo"><input type="checkbox" class="tc" value="consolidate"         checked><span>Consolidate</span></div>
-            <div class="tdo"><input type="checkbox" class="tc" value="flat_consolidation"  checked><span>Flat consolidation</span></div>
-            <div class="tdo"><input type="checkbox" class="tc" value="deep_consolidation"  checked><span>Deep consolidation</span></div>
-            <div class="tdo"><input type="checkbox" class="tc" value="sw"                  checked><span>SW sideways</span></div>
-            <div class="tdo"><input type="checkbox" class="tc" value="expanding_structure" checked><span>Expanding structure</span></div>
-            <div class="tdg" style="margin-top:4px">Bearish</div>
-            <div class="tdo"><input type="checkbox" class="tc" value="weakening_downtrend" checked><span>Weakening downtrend</span></div>
-            <div class="tdo"><input type="checkbox" class="tc" value="down"                checked><span>Down</span></div>
-            <div class="tdo"><input type="checkbox" class="tc" value="continuous_downtrend"checked><span>Continuous downtrend</span></div>
-            <div class="tdo"><input type="checkbox" class="tc" value="strong_downtrend"    checked><span>Strong downtrend</span></div>
-            <div class="tdo"><input type="checkbox" class="tc" value="transitioning"       checked><span>Transitioning</span></div>
+            <label class="tdo all">
+              <input type="checkbox" id="all-t" checked onchange="Scanner.allTrends(this)">
+              <span>All trends</span>
+            </label>
+            <div class="tdo"><input type="checkbox" class="tc" value="strong_uptrend"   checked><span>Strong uptrend</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="uptrend"          checked><span>Uptrend</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="weak_uptrend"     checked><span>Weak uptrend</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="weak_downtrend"   checked><span>Weak downtrend</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="downtrend"        checked><span>Downtrend</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="strong_downtrend" checked><span>Strong downtrend</span></div>
+            <div class="tdo"><input type="checkbox" class="tc" value="transitioning"    checked><span>Transitioning</span></div>
           </div>
         </div>
       </div>
 
-      <!-- ════ STRUCTURE STATE FILTER ════
-           Single-order: one dropdown (low only)
-           Multi-order:  three dropdowns (high/mid/low) + alignment
-           Both are rendered dynamically by scanner.js          -->
+      <!-- Pivot Structure Filter -->
       <div>
         <div class="slbl">Pivot Structure Filter</div>
-
-        <!-- Single-order: rendered here by JS -->
         <div id="sf-single-wrap"></div>
-
-        <!-- Multi-order: rendered here by JS (hidden until MO enabled) -->
         <div id="sf-multi-wrap" style="display:none"></div>
       </div>
 
-      <!-- Multi-Order card -->
+      <!-- Multi-Order -->
       <div>
         <div class="slbl">Multi-Order</div>
         <div class="moc">
@@ -185,37 +166,30 @@
             <span class="mobl">Multi-Order Analysis</span>
           </div>
           <div class="mob hid" id="mob">
-            <!-- Orders only — trend dropdowns removed, replaced by
-                 the structure filter above                          -->
             <div class="molv" style="grid-template-columns:40px 1fr">
               <span class="molk moH">HIGH</span>
               <div class="field">
                 <span class="ctrl-label">Order</span>
-                <input type="number" id="moh" class="ctrl" value="20"
-                       style="padding:5px 8px;font-size:11px">
+                <input type="number" id="moh" class="ctrl" value="20" style="padding:5px 8px;font-size:11px">
               </div>
             </div>
             <div class="molv" style="grid-template-columns:40px 1fr">
               <span class="molk moM">MID</span>
               <div class="field">
                 <span class="ctrl-label">Order</span>
-                <input type="number" id="mom" class="ctrl" value="10"
-                       style="padding:5px 8px;font-size:11px">
+                <input type="number" id="mom" class="ctrl" value="10" style="padding:5px 8px;font-size:11px">
               </div>
             </div>
             <div class="molv" style="grid-template-columns:40px 1fr">
               <span class="molk moL">LOW</span>
               <div class="field">
                 <span class="ctrl-label">Order</span>
-                <input type="number" id="mol" class="ctrl" value="5"
-                       style="padding:5px 8px;font-size:11px">
+                <input type="number" id="mol" class="ctrl" value="5" style="padding:5px 8px;font-size:11px">
               </div>
             </div>
-            <!-- Alignment filter -->
             <div class="field" style="margin-top:4px">
               <span class="ctrl-label">Alignment Required</span>
-              <select id="align-filter" class="ctrl"
-                      style="padding:5px 8px;font-size:11px"
+              <select id="align-filter" class="ctrl" style="padding:5px 8px;font-size:11px"
                       onchange="Scanner._saveUIState && Scanner._saveUIState()">
                 <option value="any">Any</option>
                 <option value="majority_bull">Majority Bullish (2/3)</option>
@@ -237,13 +211,16 @@
     <div class="rph">
       <span class="rptit">Scan Results</span>
       <span class="rpcnt" id="rcnt">—</span>
+      <span id="asset-badge" style="font-size:10px;font-weight:600;font-family:var(--mono);
+            padding:2px 7px;border-radius:4px;background:rgba(99,102,241,0.12);
+            border:1px solid rgba(99,102,241,0.3);color:var(--accent)">EQUITY</span>
       <div class="rpsrt">
-        <button class="srtb on" id="s-age" onclick="Scanner.sortBy('bars_ago')"  title="Sort by recency">⏱</button>
-        <button class="srtb"    id="s-atr" onclick="Scanner.sortBy('atr_pct')"   title="Sort by ATR">σ</button>
+        <button class="srtb on" id="s-age" onclick="Scanner.sortBy('bars_ago')" title="Sort by recency">⏱</button>
+        <button class="srtb"    id="s-atr" onclick="Scanner.sortBy('atr_pct')"  title="Sort by ATR">σ</button>
       </div>
     </div>
     <div class="rpcols">
-      <span class="rpcol">Stock</span>
+      <span class="rpcol">Symbol</span>
       <span class="rpcol">Price</span>
       <span class="rpcol">Zone</span>
     </div>
@@ -258,66 +235,83 @@
 
   <!-- ═══ CHART PANEL ═══ -->
   <div id="cp">
+
+    <!-- Chart header — uses original .cph class styled by layout.css -->
     <div class="cph">
       <span class="cptk" id="cptk">—</span>
       <span class="cppr" id="cppr"></span>
       <span id="cptr" class="tbadge t-co" style="display:none"></span>
-      <span id="tf-context-badge" style="display:none;
-        font-size:9px; font-family:var(--mono); font-weight:600;
-        padding:2px 7px; border-radius:3px; white-space:nowrap;
-        background:rgba(251,191,36,.12); color:#fbbf24;
-        border:1px solid rgba(251,191,36,.35);">
+      <span id="tf-context-badge" style="display:none;font-size:9px;font-family:var(--mono);
+            font-weight:600;padding:2px 7px;border-radius:3px;white-space:nowrap;
+            background:rgba(251,191,36,.12);color:#fbbf24;border:1px solid rgba(251,191,36,.35)">
       </span>
+      <!-- Pivot order buttons — rendered dynamically by _updatePivotButtons() -->
       <div class="pivot-ctrl" id="pivot-ctrl">
         <span class="pivot-ctrl-lbl">Pivots:</span>
         <div class="pivot-order-group" id="pivot-order-btns"></div>
       </div>
-      <div class="tfg" style="margin-left:8px">
+      <!-- Chart TF buttons — covers both equity and crypto ranges -->
+      <div class="tfg" style="margin-left:auto">
         <button class="tfb"    data-tf="1wk" onclick="Scanner.setChartTF('1wk',this)">1W</button>
-        <button class="tfb on" data-tf="1d"  onclick="Scanner.setChartTF('1d',this)">1D</button>
-        <button class="tfb"    data-tf="4h"  onclick="Scanner.setChartTF('4h',this)">4H</button>
-        <button class="tfb"    data-tf="1h"  onclick="Scanner.setChartTF('1h',this)">1H</button>
+        <button class="tfb on" data-tf="1d"  onclick="Scanner.setChartTF('1d', this)">1D</button>
+        <button class="tfb"    data-tf="4h"  onclick="Scanner.setChartTF('4h', this)">4H</button>
+        <button class="tfb"    data-tf="1h"  onclick="Scanner.setChartTF('1h', this)">1H</button>
         <button class="tfb"    data-tf="15m" onclick="Scanner.setChartTF('15m',this)">15m</button>
-        <button class="tfb"    data-tf="5m"  onclick="Scanner.setChartTF('5m',this)">5m</button>
-        <button class="tfb"    data-tf="1m"  onclick="Scanner.setChartTF('1m',this)">1m</button>
+        <button class="tfb"    data-tf="5m"  onclick="Scanner.setChartTF('5m', this)">5m</button>
+        <button class="tfb"    data-tf="3m"  onclick="Scanner.setChartTF('3m', this)">3m</button>
+        <button class="tfb"    data-tf="1m"  onclick="Scanner.setChartTF('1m', this)">1m</button>
       </div>
     </div>
+
+    <!-- Chart legend bar -->
     <div class="cpleg">
       <span class="li"><span class="ld" style="background:#ef4444"></span>Top pivot</span>
       <span class="li"><span class="ld" style="background:#22c55e"></span>Bottom pivot</span>
       <span class="li"><span class="lr" style="background:rgba(34,197,94,.2);border:1px solid #22c55e"></span>RBR</span>
       <span class="li"><span class="lr" style="background:rgba(45,212,191,.2);border:1px solid #2dd4bf"></span>DBR</span>
+      <span class="li"><span class="lr" style="background:rgba(239,68,68,.2);border:1px solid #ef4444"></span>DBD</span>
+      <span class="li"><span class="lr" style="background:rgba(249,115,22,.2);border:1px solid #f97316"></span>RBD</span>
       <span class="li"><span class="lr" style="background:rgba(167,139,250,.2);border:1px solid #a78bfa"></span>Consol.</span>
       <span class="li"><span class="lr" style="background:rgba(100,100,100,.15);border:1px dashed #666"></span>Invalidated</span>
-      <span class="li" id="pivot-order-legend"
-            style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--muted)"></span>
     </div>
-    <div id="cw">
-      <div class="empty-st">
-        <div class="e-ico">📈</div>
-        <div class="e-txt">Select a stock to view chart</div>
+
+    <!-- Chart canvas — chart.js targets id="cw" -->
+    <!-- #cload is a sibling of #cw, not a child — chart.js clears #cw.innerHTML
+         on each load which would destroy a child cload. Positioned over #cw via CSS. -->
+    <div style="position:relative;flex:1;min-height:0;display:flex;flex-direction:column">
+      <div id="cw" style="flex:1;position:relative;min-height:0">
+        <div class="empty-st">
+          <div class="e-ico">📈</div>
+          <div class="e-txt">Select a stock to view chart</div>
+        </div>
       </div>
-      <div id="cload"
-           style="position:absolute;inset:0;z-index:50;background:rgba(13,15,18,.75);
-                  display:none;align-items:center;justify-content:center">
+      <div id="cload" style="
+        position:absolute;inset:0;z-index:50;
+        background:rgba(13,15,18,0.6);
+        backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);
+        align-items:center;justify-content:center;
+        border-radius:0;">
         <div class="spinner spinner-lg"></div>
       </div>
     </div>
+
+    <!-- Metrics bar below chart — uses original .cpmet / .met / .ml / .mv classes -->
     <div class="cpmet">
       <div class="met"><div class="ml">ATR %</div>     <div class="mv" id="m1">—</div></div>
-      <div class="met"><div class="ml">Trend Str.</div> <div class="mv" id="m2">—</div></div>
+      <div class="met"><div class="ml">Structure</div> <div class="mv" id="m2">—</div></div>
       <div class="met"><div class="ml">Zones</div>      <div class="mv" id="m3">—</div></div>
-      <div class="met"><div class="ml">Zone Age</div>   <div class="mv" id="m4">—</div></div>
+      <div class="met"><div class="ml">Bars ago</div>   <div class="mv" id="m4">—</div></div>
       <div class="met"><div class="ml">Pivots</div>     <div class="mv" id="m5">—</div></div>
-      <div class="met"><div class="ml">Velocity</div>   <div class="mv" id="m6">—</div></div>
-      <div class="met"><div class="ml">Leg Ratio</div>  <div class="mv" id="m7">—</div></div>
-      <div class="met"><div class="ml">Amplitude</div>  <div class="mv" id="m8">—</div></div>
+      <div class="met"><div class="ml">Vel Δ</div>      <div class="mv" id="m6">—</div></div>
+      <div class="met"><div class="ml">LR</div>         <div class="mv" id="m7">—</div></div>
+      <div class="met"><div class="ml">Amp</div>        <div class="mv" id="m8">—</div></div>
     </div>
-  </div>
 
-</div><!-- app -->
+  </div><!-- #cp -->
 
-<!-- DETAIL DRAWER -->
+</div><!-- #app -->
+
+<!-- DETAIL DRAWER — uses original .dwh / .dwtk / .dwsb / .dwpr / .dwcl classes -->
 <div id="dw">
   <div class="dwh">
     <div style="flex:1">

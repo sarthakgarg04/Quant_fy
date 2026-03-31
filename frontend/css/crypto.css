@@ -1,0 +1,104 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   css/crypto.css  —  Crypto data-fetch UI additions
+   Add <link rel="stylesheet" href="/css/crypto.css"> to data_fetch.html
+   (or append to components.css if you prefer a single file)
+═══════════════════════════════════════════════════════════════════════════ */
+
+
+/* ─── Source toggle: third button (Binance Perp) ──────────────────────────
+   The existing .src-btn / .src-toggle styles stay the same.
+   This just ensures the three-button layout doesn't break.                */
+
+.src-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;  /* was 1fr 1fr — now three columns */
+  gap: 4px;
+}
+
+
+/* ─── Crypto symbol chips ─────────────────────────────────────────────── */
+
+.crypto-chip {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-family: var(--mono);
+  font-weight: 600;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  letter-spacing: 0.02em;
+}
+
+.crypto-chip:hover {
+  border-color: #f59e0b;
+  color: #f59e0b;
+}
+
+.crypto-chip.active {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: #f59e0b;
+  color: #f59e0b;
+}
+
+
+/* ─── Lookback period buttons ─────────────────────────────────────────── */
+
+.lookback-btn {
+  padding: 6px 10px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-weight: 500;
+}
+
+.lookback-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.lookback-btn.active {
+  background: rgba(99, 102, 241, 0.12);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+
+/* ─── Store source tabs (Equity | Crypto) ─────────────────────────────── */
+
+.store-src-tab {
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.store-src-tab:hover {
+  color: var(--fg);
+  border-color: var(--fg);
+}
+
+.store-src-tab.active {
+  background: var(--s2);
+  color: var(--fg);
+  border-color: var(--accent);
+}
+
+/* Crypto tab active state uses amber instead of accent */
+#tab-crypto.active {
+  border-color: #f59e0b;
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.08);
+}

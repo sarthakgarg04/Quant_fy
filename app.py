@@ -27,6 +27,21 @@ from algos.pivot_engine import (
     UPTREND_LABELS, DOWNTREND_LABELS, _trend_matches,
 )
 
+from data_fetch.crypto_fetch import (
+    fetch_crypto_batch_iter,   # yields (done, total, sym_key, ok) — same contract as Upstox iter
+    list_crypto_stored,        # → list of dicts for store browser
+    delete_crypto_stored,      # deletes raw + derived parquets
+    CRYPTO_SYMBOLS,            # default 10-symbol list
+)
+
+from data_fetch.crypto_fetch import (
+    load_crypto_ohlcv,      # load_crypto_ohlcv(base, interval) → DataFrame
+    list_crypto_stored,     # → list of {symbol, rows, ...}
+    CRYPTO_SYMBOLS,         # default 10 symbols
+    DERIVED_INTERVALS,      # {"3m","5m","15m","1h","4h"}
+    _file_key,              # "BTC" → "BTCUSDT_PERP"
+)
+
 def _load_keys():
     try:
         import keys as _k
@@ -85,51 +100,107 @@ _fetch_tasks:    dict = {}   # task_id -> task_dict
 _fetch_lock              = threading.Lock()
 _active_task_id: str | None = None
 
+def _crypto_base(raw: str) -> str:
+    """
+    Normalise any crypto ticker string to a clean base symbol.
+ 
+    Handles every format the frontend or scanner might send:
+        "BTCUSDT_PERP"  → "BTC"
+        "BTCUSDT"       → "BTC"
+        "BTC_PERP"      → "BTC"
+        "BTC"           → "BTC"
+    """
+    return (
+        raw.upper()
+           .replace("USDT_PERP", "")
+           .replace("USDT",      "")
+           .replace("_PERP",     "")
+           .strip()
+    )
+ 
+def _load_crypto_df(base: str, interval: str):
+    """
+    Load and normalise a crypto OHLCV DataFrame for scanner/chart use.
+ 
+    Returns a DataFrame with Title-Case column names
+    (Open, High, Low, Close, Volume) to match what the existing
+    pivot_engine and zone scanner expect.
+ 
+    Returns None if no data is available.
+    """
+    df = load_crypto_ohlcv(base, interval)
+    if df is None or df.empty:
+        return None
+ 
+    # crypto_fetch stores lowercase — rename to Title Case for existing algos
+    rename_map = {
+        "open": "Open", "high": "High",
+        "low":  "Low",  "close": "Close", "volume": "Volume",
+    }
+    df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
+    return df
 
-def _run_fetch_task(task_id: str, tf: str, src: str, universe: str,
-                    wl: str, force: bool, token: str):
+def _run_fetch_task(
+    task_id:        str,
+    tf:             str,
+    src:            str,
+    universe:       str,
+    wl:             str,
+    force:          bool,
+    token:          str,
+    # ── crypto-only params (ignored for upstox / yfinance) ──
+    crypto_symbols: list | None = None,
+    lookback_days:  int         = 730,
+):
     """
-    Daemon thread that executes the full fetch and writes progress
-    into _fetch_tasks[task_id].  The HTTP server keeps serving
-    /api/data/fetch/status requests throughout.
+    Daemon thread: runs the full fetch, writes progress into _fetch_tasks[task_id].
+    The HTTP server keeps serving /api/data/fetch/status throughout.
+ 
+    Supports three sources:
+        "upstox"  — NSE/BSE equities via Upstox API
+        "yfinance"— equities via yfinance
+        "crypto"  — Binance USDT-M perpetual 1m OHLCV (no auth required)
     """
+ 
+    # ── helpers: thread-safe task state writers ──
     def upd(**kw):
         with _fetch_lock:
             for k, v in kw.items():
                 _fetch_tasks[task_id][k] = v
-
+ 
     def task_log(msg: str, kind: str = "inf"):
         with _fetch_lock:
             entries = _fetch_tasks[task_id]["log"]
             entries.append({"msg": msg, "kind": kind})
-            if len(entries) > 300:
-                _fetch_tasks[task_id]["log"] = entries[-300:]
-
+            if len(entries) > 500:                  # keep last 500 log lines
+                _fetch_tasks[task_id]["log"] = entries[-500:]
+ 
     try:
-        upd(status="running", title=f"Starting {src} fetch — {tf}")
-        task_log(f"Starting {src} fetch — {tf}", "inf")
-
+        upd(status="running", title=f"Starting {src} fetch…")
+        task_log(f"Starting {src} fetch — {tf if src != 'crypto' else '1m canonical'}", "inf")
+ 
+        # ── UPSTOX ────────────────────────────────────────────────────────────
         if src == "upstox":
             ok_tok, _ = is_token_valid(token)
             if not ok_tok:
                 upd(status="error", title="Token expired — re-authenticate.")
                 task_log("Token expired — re-authenticate.", "err")
                 return
-
+ 
             task_log("Downloading instrument master…", "inf")
             segments = tuple(e.strip() for e in universe.split(","))
             instr    = get_eq_instruments(segments)
             keys     = instr["instrument_key"].tolist()
             upd(total=len(keys))
             task_log(f"Found {len(keys)} instruments in {universe}", "inf")
-
+ 
             if not keys:
                 upd(status="error", title=f"0 instruments found for {universe}")
                 task_log(f"0 instruments found for {universe}", "err")
                 return
-
+ 
             ok_n = err_n = 0
-            for done, total, sym, ok, err_msg in fetch_upstox_batch_iter(keys, tf, token):
+            for done, total, sym, ok in fetch_upstox_batch_iter(keys, tf, token):
                 if _fetch_tasks[task_id].get("status") == "cancelled":
                     task_log("Cancelled by user.", "inf")
                     return
@@ -138,17 +209,15 @@ def _run_fetch_task(task_id: str, tf: str, src: str, universe: str,
                     task_log(f"✓ {sym}", "ok")
                 else:
                     err_n += 1
-                    detail = f" — {err_msg}" if err_msg else " — unknown error"
-                    task_log(f"✗ {sym}{detail}", "err")
-                    log.warning("Upstox symbol failed",
-                                   sym=sym, interval=tf, error=err_msg or "unknown")
+                    task_log(f"✗ {sym}", "err")
                 upd(done=done, total=total, ok_count=ok_n, err_count=err_n)
-
-        else:  # yfinance
+ 
+        # ── YFINANCE ──────────────────────────────────────────────────────────
+        elif src == "yfinance":
             tickers = get_watchlist(wl)
             total   = len(tickers)
             upd(total=total)
-            task_log(f"Fetching {total} tickers via yfinance…", "inf")
+            task_log(f"Fetching {total} tickers via yfinance ({tf})…", "inf")
             ok_n = err_n = 0
             for i, ticker in enumerate(tickers, 1):
                 if _fetch_tasks[task_id].get("status") == "cancelled":
@@ -157,37 +226,65 @@ def _run_fetch_task(task_id: str, tf: str, src: str, universe: str,
                 try:
                     df = fetch_ohlcv(ticker, interval=tf, force_refresh=force)
                     ok = not df.empty
-                    if not ok:
-                        task_log(f"✗ {ticker} — empty response", "err")
                 except Exception as e:
                     ok = False
                     task_log(f"✗ {ticker} — {e}", "err")
-                    log.warning("yfinance symbol failed",
-                                   ticker=ticker, interval=tf, error=str(e))
-                if ok: ok_n += 1
-                else:  err_n += 1
+                if ok:
+                    ok_n += 1
+                    task_log(f"✓ {ticker}", "ok")
+                else:
+                    err_n += 1
                 upd(done=i, total=total, ok_count=ok_n, err_count=err_n)
-                task_log(f"{'✓' if ok else '✗'} {ticker}", "ok" if ok else "err")
                 time.sleep(0.05)
-
-        final = f"Done — {_fetch_tasks[task_id]['ok_count']} OK · {_fetch_tasks[task_id]['err_count']} errors"
+ 
+        # ── CRYPTO (Binance USDT-M perpetuals) ────────────────────────────────
+        elif src == "crypto":
+            targets = crypto_symbols or CRYPTO_SYMBOLS
+            upd(total=len(targets))
+            task_log(
+                f"Binance Perp fetch — 1m canonical store  |  "
+                f"{len(targets)} symbols  |  "
+                f"lookback: {lookback_days}d (initial load only, subsequent runs append)",
+                "inf"
+            )
+            task_log("No API key required — Binance public market data.", "inf")
+ 
+            ok_n = err_n = 0
+            for done, total, sym_key, ok in fetch_crypto_batch_iter(
+                symbols=targets,
+                lookback_days=lookback_days,
+            ):
+                if _fetch_tasks[task_id].get("status") == "cancelled":
+                    task_log("Cancelled by user.", "inf")
+                    return
+                if ok:
+                    ok_n += 1
+                    task_log(f"✓ {sym_key}", "ok")
+                else:
+                    err_n += 1
+                    task_log(f"✗ {sym_key}", "err")
+                upd(done=done, total=total, ok_count=ok_n, err_count=err_n)
+ 
+        else:
+            upd(status="error", title=f"Unknown source: {src}")
+            task_log(f"Unknown source '{src}'", "err")
+            return
+ 
+        # ── DONE ──────────────────────────────────────────────────────────────
+        ok_n   = _fetch_tasks[task_id]["ok_count"]
+        err_n  = _fetch_tasks[task_id]["err_count"]
+        final  = f"Done — {ok_n} OK · {err_n} errors"
         upd(status="done", title=final)
         task_log(f"✅ {final}", "inf")
-
+ 
     except Exception as exc:
         import traceback as _tb
-        tb_str = _tb.format_exc()          # full stack trace as a string
-        msg    = f"Fatal error: {exc}"
+        msg = f"Fatal error: {exc}"
         upd(status="error", title=msg)
-        log(msg, "err")
-        log(tb_str, "err")                 # full traceback visible in UI log panel too
-        log.error(                      # write to rotating log file with full trace
-            "fetch_task fatal exception",
-            task_id=task_id, tf=tf, src=src,
-            error=str(exc),
-        )
-        log.error(tb_str)   
-
+        task_log(msg, "err")
+        task_log(_tb.format_exc(), "err")
+ 
+ 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
@@ -207,10 +304,10 @@ def _candles(df: pd.DataFrame) -> list:
     for ts, row in df.iterrows():
         t = int(pd.Timestamp(ts).timestamp())
         out.append({"time": t,
-                    "open":   round(float(row["Open"]),  2),
-                    "high":   round(float(row["High"]),  2),
-                    "low":    round(float(row["Low"]),   2),
-                    "close":  round(float(row["Close"]), 2),
+                    "open":   float(row["Open"]),
+                    "high":   float(row["High"]),
+                    "low":    float(row["Low"]),
+                    "close":  float(row["Close"]),
                     "volume": float(row.get("Volume", 0))})
     return out
 
@@ -692,51 +789,66 @@ def auth_callback():
 # DATA FETCH — Background task endpoints
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @app.route("/api/data/fetch/start", methods=["POST"])
 def fetch_start():
     global _active_task_id
-
-    # Check if one is already running
+ 
+    # Block if a task is already running
     if _active_task_id and _fetch_tasks.get(_active_task_id, {}).get("status") == "running":
         return jsonify({
-            "ok": False,
+            "ok":             False,
             "already_running": True,
-            "task_id": _active_task_id,
-            "error": "A fetch is already running",
+            "task_id":        _active_task_id,
+            "error":          "A fetch is already running",
         })
-
-    body     = request.get_json(force=True, silent=True) or {}
+ 
+    body = request.get_json(force=True, silent=True) or {}
+ 
+    # Common params
     tf       = body.get("tf",       "1d")
     src      = body.get("src",      "yfinance")
     universe = body.get("universe", "NSE_EQ")
     wl       = body.get("wl",       "nifty50")
     force    = bool(body.get("force", False))
     token    = load_token() or ""
-
+ 
+    # Crypto-specific params (ignored for upstox / yfinance)
+    crypto_symbols = body.get("crypto_symbols", None)  # list[str] | null → defaults to CRYPTO_SYMBOLS
+    lookback_days  = int(body.get("lookback_days", 730))
+ 
     task_id = str(uuid.uuid4())[:8]
     with _fetch_lock:
         _fetch_tasks[task_id] = {
-            "id":        task_id,
-            "status":    "starting",
-            "done":      0,
-            "total":     0,
-            "ok_count":  0,
-            "err_count": 0,
-            "title":     "Starting…",
-            "interval":  tf,
-            "log":       [],
-            "params":    {"tf": tf, "src": src, "universe": universe, "wl": wl, "force": force},
+            "id":          task_id,
+            "status":      "starting",
+            "done":        0,
+            "total":       0,
+            "ok_count":    0,
+            "err_count":   0,
+            "title":       "Starting…",
+            "interval":    tf if src != "crypto" else "1m",
+            "log":         [],
+            "params":      {
+                "tf": tf, "src": src,
+                "universe": universe, "wl": wl,
+                "force": force,
+                "crypto_symbols": crypto_symbols,
+                "lookback_days":  lookback_days,
+            },
         }
     _active_task_id = task_id
-
+ 
     t = threading.Thread(
         target=_run_fetch_task,
-        args=(task_id, tf, src, universe, wl, force, token),
+        args=(task_id, tf, src, universe, wl, force, token,
+              crypto_symbols, lookback_days),
         daemon=True,
     )
     t.start()
-
+ 
     return jsonify({"ok": True, "task_id": task_id})
+ 
 
 
 @app.route("/api/data/fetch/status")
@@ -817,6 +929,361 @@ def store_delete():
     return jsonify({"ok": delete_stored(symbol, interval)})
 
 
+@app.route("/api/crypto/scan")
+def crypto_scan():
+    """
+    Run the zone + structure scanner over stored crypto perp symbols.
+ 
+    Accepts the same query parameters as /api/scan so the frontend
+    scanner.js can call this with zero changes to its params payload.
+    Differences from equity scan:
+      - Data is always loaded from the 1m canonical store and resampled
+      - Interval defaults to "15m" (not "1d")
+      - Symbols are the 10 stored perp symbols (no watchlist concept)
+ 
+    Query params:  same as /api/scan
+    """
+    import time as _time
+    _t0 = _time.perf_counter()
+ 
+    # ── Parse params (identical keys to /api/scan) ─────────────────────────
+    direction     = request.args.get("direction",       "buy")
+    interval      = request.args.get("interval",        "15m")
+    order         = int(request.args.get("order",        5))
+    zone_lookback = int(request.args.get("zone_lookback", 20))
+    legout_mult   = float(request.args.get("legout_mult", 1.35))
+    strategy      = request.args.get("strategy",        "atr")
+    multi_order   = request.args.get("multi_order", "false").lower() == "true"
+    order_low     = int(request.args.get("order_low",   5))
+    order_mid     = int(request.args.get("order_mid",   10))
+    order_high    = int(request.args.get("order_high",  20))
+ 
+    atr_zone_types_raw = request.args.get("atr_zone_types", "").strip()
+    atr_zone_types = (
+        [t.strip() for t in atr_zone_types_raw.split(",") if t.strip()]
+        if atr_zone_types_raw else None
+    )
+ 
+    def _parse_states(param: str) -> list:
+        raw = request.args.get(param, "").strip()
+        return [s.strip() for s in raw.split(",") if s.strip()] if raw else []
+ 
+    structure_low  = _parse_states("structure_low")
+    structure_mid  = _parse_states("structure_mid")
+    structure_high = _parse_states("structure_high")
+    alignment_filter = request.args.get("alignment_filter", "any")
+    trend_filter_raw = request.args.get("trend_filter", "").strip()
+    tf_list = [t.strip() for t in trend_filter_raw.split(",") if t.strip()] or None
+ 
+    # ── Validate interval ──────────────────────────────────────────────────
+    supported = {"1m"} | set(DERIVED_INTERVALS.keys())
+    if interval not in supported:
+        return jsonify({
+            "error":     f"Interval '{interval}' not supported for crypto.",
+            "supported": sorted(supported),
+        }), 400
+ 
+    # ── Load data for all stored symbols ───────────────────────────────────
+    stored  = list_crypto_stored()          # [{"symbol":"BTCUSDT_PERP", ...}]
+    data_d  = {}
+ 
+    for item in stored:
+        sym_key = item["symbol"]            # e.g. "BTCUSDT_PERP"
+        base    = _crypto_base(sym_key)     # e.g. "BTC"
+        df      = _load_crypto_df(base, interval)
+        if df is not None and not df.empty:
+            data_d[sym_key] = df
+ 
+    if not data_d:
+        return jsonify({
+            "results": [], "count": 0,
+            "error":   f"No crypto data stored for interval '{interval}'. "
+                       f"Fetch 1m data first, then request a derived interval.",
+        })
+ 
+    log.info(
+        "Crypto scan request",
+        direction=direction, interval=interval,
+        symbols=len(data_d), strategy=strategy,
+    )
+ 
+    # ── Run scan — identical call to equity scan ───────────────────────────
+    # scan_watchlist is asset-class agnostic: it only cares about DataFrames
+    df_res = scan_watchlist(
+        tickers=list(data_d.keys()),
+        data_dict=data_d,
+        order=order,
+        zone_lookback=zone_lookback,
+        direction=direction,
+        trend_filter=tf_list,
+        legout_mult=legout_mult,
+        strategy=strategy,
+        atr_zone_types=atr_zone_types,
+        multi_order=multi_order,
+        order_low=order_low,
+        order_mid=order_mid,
+        order_high=order_high,
+        structure_filter_low=structure_low  or None,
+        structure_filter_mid=structure_mid  or None,
+        structure_filter_high=structure_high or None,
+        alignment_filter=alignment_filter,
+        interval=interval,
+    )
+ 
+    if df_res.empty:
+        return jsonify({"results": [], "count": 0})
+ 
+    records = [_sr(r) for r in df_res.to_dict(orient="records")]
+    log.info(
+        "Crypto scan complete",
+        matched=len(records),
+        interval=interval,
+        elapsed_ms=round((_time.perf_counter() - _t0) * 1000),
+    )
+    return jsonify({"results": records, "count": len(records)})
+
+
+@app.route("/api/crypto/chart/<path:base>")
+def crypto_chart(base: str):
+    """
+    Returns OHLCV + pivots + zones for a single crypto perp symbol.
+ 
+    Mirrors the contract of /api/chart/<ticker> exactly so Chart.js
+    can call it with the same response parsing logic.
+ 
+    Path param:
+        base: accepts any format — "BTC", "BTCUSDT", "BTCUSDT_PERP"
+ 
+    Query params:  same as /api/chart/<ticker>
+    """
+    base_clean    = _crypto_base(base)
+    interval      = request.args.get("interval",       "15m")
+    order         = int(request.args.get("order",        5))
+    legout_mult   = float(request.args.get("legout_mult", 1.35))
+    strategy      = request.args.get("strategy",        "atr")
+    zone_lookback = int(request.args.get("zone_lookback", 20))
+    multi_order   = request.args.get("multi_order", "false").lower() == "true"
+    order_low     = int(request.args.get("order_low",    5))
+    order_mid     = int(request.args.get("order_mid",   10))
+    order_high    = int(request.args.get("order_high",  20))
+    max_base_candles = int(request.args.get("max_base",  8))
+    # Limit candles sent to chart — crypto has massive datasets (1m = 500k+ rows).
+    # 1000 candles is sufficient for chart display + pivot calculation.
+    # Pivots always use the full dataset for accuracy; only the chart render is limited.
+    candle_limit  = int(request.args.get("candle_limit", 1000))
+ 
+    # ── Load OHLCV ─────────────────────────────────────────────────────────
+    df = _load_crypto_df(base_clean, interval)
+    if df is None or df.empty:
+        return jsonify({
+            "error": (
+                f"No data for {base_clean} at interval '{interval}'. "
+                f"Ensure 1m data has been fetched, then retry."
+            )
+        }), 404
+
+    # Strip timezone from index — algos (extrems, scan_zones, etc.) expect
+    # a tz-naive DatetimeIndex, same as the equity pipeline produces.
+    if hasattr(df.index, 'tz') and df.index.tz is not None:
+        df = df.copy()
+        df.index = df.index.tz_localize(None)
+
+    try:
+        return _crypto_chart_inner(base_clean, df, interval, order, legout_mult,
+                                   strategy, zone_lookback, multi_order,
+                                   order_low, order_mid, order_high, max_base_candles,
+                                   candle_limit)
+    except Exception as exc:
+        import traceback as _tb
+        tb_str = _tb.format_exc()
+        log.error("crypto_chart exception", base=base_clean, interval=interval, error=str(exc))
+        log.error(tb_str)
+        return jsonify({"error": str(exc), "traceback": tb_str}), 500
+
+
+def _crypto_chart_inner(base_clean, df, interval, order, legout_mult,
+                        strategy, zone_lookback, multi_order,
+                        order_low, order_mid, order_high, max_base_candles,
+                        candle_limit=1000):
+    # ── Use full df for pivots & zones (accuracy), truncated for candle render ──
+    # Pivots on 1m need full history context; only the rendered candles are limited.
+    df_chart = df.tail(candle_limit).copy() if len(df) > candle_limit else df
+    pvts  = extrems(df, order=order)   # list of (bar_idx, value, type)
+    trend = detect_trend(pvts)
+    atr   = compute_atr(df)
+
+    # Serialise pivots to match /api/chart contract: {time, value, type}
+    pivot_list = [
+        {
+            "time":  int(pd.Timestamp(df.index[i]).timestamp()),
+            "value": round(float(v), 8),
+            "type":  t,
+        }
+        for i, v, t in pvts
+    ]
+
+    # ── Zones — same format as equity /api/chart ───────────────────────────
+    include_atr    = strategy in ("atr",  "both")
+    include_consol = strategy in ("consolidation", "both")
+    start_idx      = max(0, len(df) - zone_lookback) if zone_lookback > 0 else 0
+
+    def _ser_zones(zones):
+        out = []
+        for z in (zones or []):
+            try:
+                out.append({
+                    "time_start":      int(pd.Timestamp(z["time_start"]).timestamp()),
+                    "time_end":        int(pd.Timestamp(z["time_end"]).timestamp()),
+                    "price_high":      z["price_high"],
+                    "price_low":       z["price_low"],
+                    "zone_type":       z.get("zone_type",       "rbr"),
+                    "status":          z.get("status",          "fresh"),
+                    "base_bars":       z.get("base_bars",        0),
+                    "legout_strength": z.get("legout_strength",  0.0),
+                    "vol_score":       z.get("vol_score",        0.0),
+                })
+            except Exception:
+                pass
+        return out
+
+    try:
+        buy_zones_raw = scan_zones(
+            df, direction="buy", legout_mult=legout_mult,
+            max_base_candles=max_base_candles, start_idx=start_idx,
+            include_atr=include_atr, include_consolidation=include_consol,
+        )
+    except Exception as e:
+        log.warning("crypto_chart: buy zones failed", base=base_clean, error=str(e))
+        buy_zones_raw = []
+
+    try:
+        sell_zones_raw = scan_zones(
+            df, direction="sell", legout_mult=legout_mult,
+            max_base_candles=max_base_candles, start_idx=start_idx,
+            include_atr=include_atr, include_consolidation=include_consol,
+        )
+    except Exception as e:
+        log.warning("crypto_chart: sell zones failed", base=base_clean, error=str(e))
+        sell_zones_raw = []
+
+    # ── Multi-order pivots (same structure as equity chart) ────────────────
+    multiorder_pivots = None
+    if multi_order:
+        try:
+            multiorder_pivots = {}
+            for lbl, ord_val in [("H", order_high), ("M", order_mid), ("L", order_low)]:
+                multiorder_pivots[lbl] = [
+                    {
+                        "time":  int(pd.Timestamp(df.index[i]).timestamp()),
+                        "value": round(float(v), 8),
+                        "type":  t,
+                    }
+                    for i, v, t in extrems(df, order=ord_val)
+                ]
+        except Exception as e:
+            log.warning("crypto_chart: multiorder pivots failed", error=str(e))
+            multiorder_pivots = None
+
+    # ── Candles — use truncated df_chart (last 1000 bars) for speed ──────────
+    # chart.js sanitise() checks: time (int unix), open/high/low/close/volume (float)
+    candle_list = _candles(df_chart)   # df_chart is already tail(candle_limit)
+
+    # ── ATR ────────────────────────────────────────────────────────────────
+    atr_val = _safe(round(float(atr.iloc[-1]), 8)) if not atr.empty else None
+    atr_pct = None
+    if atr_val and float(df["Close"].iloc[-1]) > 0:
+        atr_pct = _safe(round(atr_val / float(df["Close"].iloc[-1]) * 100, 4))
+
+    payload = {
+        "ticker":    _file_key(base_clean),   # "BTCUSDT_PERP"
+        "interval":  interval,
+        "asset_class": "crypto",
+        # ── candles: same schema as /api/chart ─────────────────────────────
+        "candles":   candle_list,
+        # ── pivots ──────────────────────────────────────────────────────────
+        "pivots":    pivot_list,
+        # ── zones — same keys as /api/chart so chart.js reads them ─────────
+        "buy_zones":  _ser_zones(buy_zones_raw),
+        "sell_zones": _ser_zones(sell_zones_raw),
+        # ── trend & metrics ─────────────────────────────────────────────────
+        "trend":    trend,
+        "atr":      atr_val,
+        "atr_pct":  atr_pct,
+    }
+    if multiorder_pivots:
+        payload["multiorder_pivots"] = multiorder_pivots
+
+    return jsonify(payload)
+ 
+ 
+# ─────────────────────────────────────────────────────────────────────────────
+# [5] /api/crypto/intervals — tells frontend which intervals are available
+# ─────────────────────────────────────────────────────────────────────────────
+ 
+@app.route("/api/crypto/intervals")
+def crypto_intervals():
+    """
+    Returns the canonical interval list for crypto perps.
+    Frontend calls this on init to populate the TF buttons dynamically
+    rather than hardcoding them.
+    """
+    return jsonify({
+        "intervals": [
+            {"value": "1m",  "label": "1m",  "group": "minutes"},
+            {"value": "3m",  "label": "3m",  "group": "minutes"},
+            {"value": "5m",  "label": "5m",  "group": "minutes"},
+            {"value": "15m", "label": "15m", "group": "minutes"},
+            {"value": "1h",  "label": "1H",  "group": "hours"},
+            {"value": "4h",  "label": "4H",  "group": "hours"},
+        ],
+        "default": "15m",
+    })
+
+@app.route("/api/crypto/store")
+def crypto_store():
+    """
+    Storage info for all crypto perp symbols.
+    Powers the Crypto tab in the store browser.
+ 
+    Returns a list of dicts:
+        symbol, interval, rows, first_date, last_date, size_kb, source
+    """
+    items = list_crypto_stored()
+    total_kb = sum(it["size_kb"] for it in items)
+    return jsonify({
+        "total_symbols": len(items),
+        "total_size_mb": round(total_kb / 1024, 2),
+        "items":         items,
+        "source":        "binance_perp",
+    })
+ 
+ 
+@app.route("/api/crypto/symbols")
+def crypto_symbols_route():
+    """List of all crypto symbol keys that have 1m data stored."""
+    items = list_crypto_stored()
+    return jsonify({
+        "symbols": [it["symbol"] for it in items],
+        "count":   len(items),
+    })
+ 
+ 
+@app.route("/api/crypto/store/delete", methods=["POST"])
+def crypto_store_delete():
+    """Delete all stored data (raw 1m + all derived TFs) for a crypto symbol."""
+    body = request.get_json(force=True, silent=True) or {}
+    base = (
+        body.get("base", "")
+            .upper()
+            .replace("USDT_PERP", "")
+            .replace("USDT", "")
+            .replace("_PERP", "")
+            .strip()
+    )
+    if not base:
+        return jsonify({"ok": False, "error": "base symbol required e.g. 'BTC'"}), 400
+    ok = delete_crypto_stored(base)
+    return jsonify({"ok": ok, "deleted": base})
 
 # ─────────────────────────────────────────────────────────────
 # debugging:
