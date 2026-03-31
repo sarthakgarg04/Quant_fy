@@ -8,3 +8,4 @@ __pycache__/
 data_store/
 frontend_old
 logs
+notebooks/04*

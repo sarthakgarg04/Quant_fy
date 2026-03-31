@@ -251,28 +251,18 @@
         <div class="pivot-order-group" id="pivot-order-btns"></div>
       </div>
       <!-- Chart TF buttons — covers both equity and crypto ranges -->
+      <!-- Chart TF buttons -->
       <div class="tfg" style="margin-left:auto">
-        <button class="tfb"    data-tf="1wk" onclick="Scanner.setChartTF('1wk',this)">1W</button>
-        <button class="tfb on" data-tf="1d"  onclick="Scanner.setChartTF('1d', this)">1D</button>
-        <button class="tfb"    data-tf="4h"  onclick="Scanner.setChartTF('4h', this)">4H</button>
-        <button class="tfb"    data-tf="1h"  onclick="Scanner.setChartTF('1h', this)">1H</button>
-        <button class="tfb"    data-tf="15m" onclick="Scanner.setChartTF('15m',this)">15m</button>
-        <button class="tfb"    data-tf="5m"  onclick="Scanner.setChartTF('5m', this)">5m</button>
-        <button class="tfb"    data-tf="3m"  onclick="Scanner.setChartTF('3m', this)">3m</button>
-        <button class="tfb"    data-tf="1m"  onclick="Scanner.setChartTF('1m', this)">1m</button>
+        <button class="tfb" data-tf="1wk" data-asset="equity" onclick="Scanner.setChartTF('1wk',this)">1W</button>
+        <button class="tfb" data-tf="1w"  data-asset="crypto" style="display:none" onclick="Scanner.setChartTF('1w',this)">1W</button>
+        <button class="tfb on" data-tf="1d" data-asset="both" onclick="Scanner.setChartTF('1d',this)">1D</button>
+        <button class="tfb" data-tf="4h"  data-asset="both"   onclick="Scanner.setChartTF('4h', this)">4H</button>
+        <button class="tfb" data-tf="1h"  data-asset="both"   onclick="Scanner.setChartTF('1h', this)">1H</button>
+        <button class="tfb" data-tf="15m" data-asset="both"   onclick="Scanner.setChartTF('15m',this)">15m</button>
+        <button class="tfb" data-tf="5m"  data-asset="both"   onclick="Scanner.setChartTF('5m', this)">5m</button>
+        <button class="tfb" data-tf="3m"  data-asset="crypto" style="display:none" onclick="Scanner.setChartTF('3m', this)">3m</button>
+        <button class="tfb" data-tf="1m"  data-asset="both"   onclick="Scanner.setChartTF('1m', this)">1m</button>
       </div>
-    </div>
-
-    <!-- Chart legend bar -->
-    <div class="cpleg">
-      <span class="li"><span class="ld" style="background:#ef4444"></span>Top pivot</span>
-      <span class="li"><span class="ld" style="background:#22c55e"></span>Bottom pivot</span>
-      <span class="li"><span class="lr" style="background:rgba(34,197,94,.2);border:1px solid #22c55e"></span>RBR</span>
-      <span class="li"><span class="lr" style="background:rgba(45,212,191,.2);border:1px solid #2dd4bf"></span>DBR</span>
-      <span class="li"><span class="lr" style="background:rgba(239,68,68,.2);border:1px solid #ef4444"></span>DBD</span>
-      <span class="li"><span class="lr" style="background:rgba(249,115,22,.2);border:1px solid #f97316"></span>RBD</span>
-      <span class="li"><span class="lr" style="background:rgba(167,139,250,.2);border:1px solid #a78bfa"></span>Consol.</span>
-      <span class="li"><span class="lr" style="background:rgba(100,100,100,.15);border:1px dashed #666"></span>Invalidated</span>
     </div>
 
     <!-- Chart canvas — chart.js targets id="cw" -->

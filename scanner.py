@@ -29,6 +29,7 @@ from algos.trend_analysis import (
     get_multiorder_structure,
     structure_matches_filter,
 )
+from algos.context import SymbolContext  
 
 import pandas as pd
 
@@ -81,6 +82,7 @@ def _trend_only_result(
     trend: str,
     strength: dict,
     mo: Dict[str, Any],
+    ctx: "SymbolContext",           # ← ADD
     order: int = 5,
     eff_low: int = 5,
     eff_mid: int = 10,
@@ -91,8 +93,8 @@ def _trend_only_result(
     strategy: str = "trend_only",
     interval: str = "1d",
 ) -> Dict[str, Any]:
-    atr_val = float(compute_atr(df).iloc[-1])
-    close   = float(df["Close"].iloc[-1])
+    atr_val = ctx.atr_val
+    close   = ctx.close
     vel     = compute_pivot_velocity(pvts)
     amp     = compute_pivot_amplitude(pvts)
     lr      = compute_leg_ratio(pvts)
@@ -157,40 +159,39 @@ def analyse_symbol(
     alignment_filter: str = "any",
     interval: str = "1d",  
 ) -> Optional[Dict[str, Any]]:
+    
     try:
         if df is None or len(df) < max(50, order * 4):
             return None
 
-        pvts     = extrems(df, order=order)
-        trend    = detect_trend(pvts)          # preliminary — used for velocity/amp/lr
-        strength = pivot_trend_strength(pvts)
+        # ── Build context once — ATR computed here, reused everywhere below ──
+        ctx = SymbolContext.build(df)
 
         # Effective order levels
         eff_low  = order_low  if multi_order else order
         eff_mid  = order_mid  if multi_order else order
         eff_high = order_high if multi_order else order
 
+        # get_multiorder_structure now returns pivots + trend per level
+        # (after the change to trend_analysis.py above)
         mo = get_multiorder_structure(
             df, order_low=eff_low, order_mid=eff_mid, order_high=eff_high
         )
 
-        # ── Trend filter (FIXED v3.4) ─────────────────────────────────────────
-        # BUG WAS: checked `trend` from single-order detect_trend(order=5)
-        # FIX:     check mo["low"]["trend"] which uses the correct effective order
-        # This ensures the filter matches the trend displayed in the UI row.
-        effective_trend = detect_trend(extrems(df, order=eff_low))
+        # Reuse pivots at eff_low order — already computed inside mo
+        pvts     = mo["low"]["pivots"]    # ← no extra extrems() call
+        trend    = mo["low"]["trend"]     # ← no extra detect_trend() call
+        strength = pivot_trend_strength(pvts)
 
-        if trend_filter and effective_trend not in trend_filter:
+        # Trend filter — reads directly from mo, zero extra computation
+        if trend_filter and trend not in trend_filter:
             log.debug(
                 "Trend filter drop",
                 ticker=ticker,
-                effective_trend=effective_trend,
+                effective_trend=trend,
                 filter=sorted(trend_filter),
-                raw_trend=trend,
             )
-            return None
-
-        trend = effective_trend   # use authoritative value in result row
+            return None  # use authoritative value in result row
 
         # Apply structure filter
         if multi_order:
@@ -213,15 +214,17 @@ def analyse_symbol(
         # Trend only — skip zones
         if strategy == "trend_only":
             return _trend_only_result(
-                ticker, df, pvts, trend, strength, mo,
-                order=order, eff_low=eff_low, eff_mid=eff_mid, eff_high=eff_high,
-                multi_order=multi_order, zone_lookback=zone_lookback,
-                legout_mult=legout_mult, strategy=strategy, interval=interval,
-            )
+            ticker, df, pvts, trend, strength, mo,
+            ctx=ctx,                # ← ADD
+            order=order, eff_low=eff_low, eff_mid=eff_mid, eff_high=eff_high,
+            multi_order=multi_order, zone_lookback=zone_lookback,
+            legout_mult=legout_mult, strategy=strategy, interval=interval,
+        )
 
         # Zone detection
-        atr_val   = float(compute_atr(df).iloc[-1])
-        close     = float(df["Close"].iloc[-1])
+        # Use pre-built context — no recomputation
+        atr_val   = ctx.atr_val
+        close     = ctx.close
         start_idx = max(0, len(df) - zone_lookback)
 
         zones = scan_zones(

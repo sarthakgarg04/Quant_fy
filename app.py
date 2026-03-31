@@ -22,10 +22,10 @@ sys.path.insert(0, ROOT)
 
 from algos.pivot_engine import (
     extrems, detect_trend, compute_atr, tag_signals,
-    detect_trend_multiorder, compute_pivot_velocity,
-    compute_pivot_amplitude, compute_leg_ratio,
+    compute_pivot_velocity, compute_pivot_amplitude, compute_leg_ratio,
     UPTREND_LABELS, DOWNTREND_LABELS, _trend_matches,
 )
+from algos.trend_analysis import get_multiorder_structure 
 
 from data_fetch.crypto_fetch import (
     fetch_crypto_batch_iter,   # yields (done, total, sym_key, ok) — same contract as Upstox iter
@@ -41,6 +41,32 @@ from data_fetch.crypto_fetch import (
     DERIVED_INTERVALS,      # {"3m","5m","15m","1h","4h"}
     _file_key,              # "BTC" → "BTCUSDT_PERP"
 )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Shared serialisers  (module-level — used by all chart routes)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _serialise_zones(zones: list | None) -> list:
+    """Convert ZoneDict list → JSON-safe list. Handles None input safely."""
+    out = []
+    for z in (zones or []):
+        try:
+            out.append({
+                "time_start":      int(pd.Timestamp(z["time_start"]).timestamp()),
+                "time_end":        int(pd.Timestamp(z["time_end"]).timestamp()),
+                "price_high":      z["price_high"],
+                "price_low":       z["price_low"],
+                "zone_type":       z.get("zone_type",       "rbr"),
+                "status":          z.get("status",          "fresh"),
+                "base_bars":       z.get("base_bars",        0),
+                "legout_strength": z.get("legout_strength",  0.0),
+                "vol_score":       z.get("vol_score",        0.0),
+            })
+        except Exception:
+            pass
+    return out
+
 
 def _load_keys():
     try:
@@ -118,19 +144,28 @@ def _crypto_base(raw: str) -> str:
            .strip()
     )
  
-def _load_crypto_df(base: str, interval: str):
+_EQUITY_TO_CRYPTO_TF = {"1wk": "1w"}
+
+# Column map: Binance stores lowercase, all algos expect Title Case
+_CRYPTO_COL_RENAME = {
+    "open": "Open", "high": "High",
+    "low":  "Low",  "close": "Close", "volume": "Volume",
+}
+
+def _load_crypto_df(base: str, interval: str) -> "pd.DataFrame | None":
     """
-    Load and normalise a crypto OHLCV DataFrame for scanner/chart use.
- 
-    Returns a DataFrame with Title-Case column names
-    (Open, High, Low, Close, Volume) to match what the existing
-    pivot_engine and zone scanner expect.
- 
-    Returns None if no data is available.
+    Load crypto OHLCV and rename columns to Title Case so pivot_engine,
+    scan_zones, compute_atr and all other algos work without modification.
+    Also normalises equity-style TF strings (1wk → 1w).
     """
-    df = load_crypto_ohlcv(base, interval)
+    interval = {"1wk": "1w"}.get(interval, interval)
+    try:
+        df = load_crypto_ohlcv(base, interval)
+    except Exception:
+        return None
     if df is None or df.empty:
         return None
+    return df.rename(columns={k: v for k, v in _CRYPTO_COL_RENAME.items() if k in df.columns})
  
     # crypto_fetch stores lowercase — rename to Title Case for existing algos
     rename_map = {
@@ -573,45 +608,28 @@ def chart_data(ticker):
     except Exception as e:
         print(f"[chart] sell scan_zones error: {e}"); sell_zones_raw = []
 
-    def _ser(zones):
-        out = []
-        for z in zones:
-            try:
-                out.append({
-                    "time_start":      int(pd.Timestamp(z["time_start"]).timestamp()),
-                    "time_end":        int(pd.Timestamp(z["time_end"]).timestamp()),
-                    "price_high":      z["price_high"],
-                    "price_low":       z["price_low"],
-                    "zone_type":       z.get("zone_type",       "rbr"),
-                    "status":          z.get("status",          "fresh"),
-                    "base_bars":       z.get("base_bars",        0),
-                    "legout_strength": z.get("legout_strength",  0.0),
-                    "vol_score":       z.get("vol_score",        0.0),
-                })
-            except Exception:
-                pass
-        return out
 
     multiorder_data = None
     if multi_order:
         try:
-            mo = detect_trend_multiorder(df, order_low=order_low, order_mid=order_mid, order_high=order_high)
+            mo = get_multiorder_structure(df, order_low=order_low, order_mid=order_mid, order_high=order_high)
             def _mol(lv):
-                v   = mo[lv]; vel = v["velocity"]; amp = v["amplitude"]; lr = v["leg_ratio"]
+                v   = mo[lv]; pvts = v["pivots"]   ; vel  = compute_pivot_velocity(pvts); amp  = compute_pivot_amplitude(pvts); lr   = compute_leg_ratio(pvts)
                 return {"order": v["order"], "trend": v["trend"], "score": v["score"], "pivot_count": v["pivot_count"],
                         "velocity":  {"current_vel": vel["current_vel"], "avg_velocity": vel["avg_velocity"], "acceleration": vel["acceleration"], "accel_label": vel["accel_label"], "trend_vel": vel["trend_vel"]},
                         "amplitude": {"avg_amplitude": amp["avg_amplitude"], "recent_avg": amp["recent_avg"], "regime": amp["regime"], "variance_pct": amp["variance_pct"], "amplitude_trend": amp["amplitude_trend"]},
                         "leg_ratio": {"ratio": lr["ratio"], "recent_ratio": lr["recent_ratio"], "avg_bull": lr["avg_bull"], "avg_bear": lr["avg_bear"], "label": lr["label"]}}
             multiorder_data = {"low": _mol("low"), "mid": _mol("mid"), "high": _mol("high"),
-                               "alignment": mo["alignment"], "combined_trend": mo["combined_trend"]}
+                               "alignment": mo["alignment"], "combined_trend": mo.get("combined_trend", ""),
+            }
         except Exception as e:
             print(f"[chart] multiorder error: {e}")
 
     payload = {
         "ticker": ticker, "interval": interval,
         "candles": _candles(df), "pivots": pivot_list,
-        "buy_zones":  _ser(buy_zones_raw),
-        "sell_zones": _ser(sell_zones_raw),
+        "buy_zones":  _serialise_zones(buy_zones_raw),
+        "sell_zones": _serialise_zones(sell_zones_raw),
         "trend": trend,
     }
     if multiorder_data:
@@ -670,12 +688,17 @@ def _trend(ticker, params):
     last_price = float(df["Close"].iloc[-1])
     min_str    = last_price * min_str_pct / 100 if min_str_pct > 0 else 0.0
 
+    from algos.context import SymbolContext
+    ctx      = SymbolContext.build(df)
+
     pvts     = extrems(df, order=order, min_strength=min_str, min_strength_atr_mult=atr_mult)
     trend    = detect_trend(pvts)
     strength = pivot_trend_strength(pvts)
 
-    try:   cscore = confluence_score(df, order=order)
-    except: cscore = {}
+    try:
+        cscore = confluence_score(df, order=order, pivots=pvts, atr_series=ctx.atr)
+    except Exception:
+        cscore = {}
 
     pivot_list = [{"time": int(pd.Timestamp(df.index[i]).timestamp()), "value": round(v, 2), "type": t, "bar": int(i)} for i, v, t in pvts]
 
@@ -683,7 +706,7 @@ def _trend(ticker, params):
     try:   edge = measure_edge(tagged).to_dict(orient="records")
     except: edge = []
 
-    atr_s = compute_atr(df)
+    atr_s = ctx.atr    
     atr_l = [{"time": int(pd.Timestamp(ts).timestamp()), "value": round(float(v), 4)} for ts, v in zip(df.index, atr_s) if not np.isnan(v)]
 
     vel = compute_pivot_velocity(pvts)
@@ -703,7 +726,7 @@ def _trend(ticker, params):
 
     if multi_order:
         try:
-            mo = detect_trend_multiorder(df, order_low=order_low, order_mid=order_mid, order_high=order_high)
+            mo = get_multiorder_structure(df, order_low=order_low, order_mid=order_mid, order_high=order_high)
             payload["multiorder"] = {
                 "low":  {"order": mo["low"]["order"],  "trend": mo["low"]["trend"],  "score": mo["low"]["score"],  "velocity": mo["low"]["velocity"],  "amplitude": mo["low"]["amplitude"],  "leg_ratio": mo["low"]["leg_ratio"]},
                 "mid":  {"order": mo["mid"]["order"],  "trend": mo["mid"]["trend"],  "score": mo["mid"]["score"],  "velocity": mo["mid"]["velocity"],  "amplitude": mo["mid"]["amplitude"],  "leg_ratio": mo["mid"]["leg_ratio"]},
@@ -976,6 +999,9 @@ def crypto_scan():
     tf_list = [t.strip() for t in trend_filter_raw.split(",") if t.strip()] or None
  
     # ── Validate interval ──────────────────────────────────────────────────
+    # Normalise equity-style TF strings before validation
+    interval = _EQUITY_TO_CRYPTO_TF.get(interval, interval)
+
     supported = {"1m"} | set(DERIVED_INTERVALS.keys())
     if interval not in supported:
         return jsonify({
@@ -1058,6 +1084,7 @@ def crypto_chart(base: str):
     """
     base_clean    = _crypto_base(base)
     interval      = request.args.get("interval",       "15m")
+    interval      = _EQUITY_TO_CRYPTO_TF.get(interval, interval)   # ← ADD: normalise 1wk→1w
     order         = int(request.args.get("order",        5))
     legout_mult   = float(request.args.get("legout_mult", 1.35))
     strategy      = request.args.get("strategy",        "atr")
@@ -1127,24 +1154,6 @@ def _crypto_chart_inner(base_clean, df, interval, order, legout_mult,
     include_consol = strategy in ("consolidation", "both")
     start_idx      = max(0, len(df) - zone_lookback) if zone_lookback > 0 else 0
 
-    def _ser_zones(zones):
-        out = []
-        for z in (zones or []):
-            try:
-                out.append({
-                    "time_start":      int(pd.Timestamp(z["time_start"]).timestamp()),
-                    "time_end":        int(pd.Timestamp(z["time_end"]).timestamp()),
-                    "price_high":      z["price_high"],
-                    "price_low":       z["price_low"],
-                    "zone_type":       z.get("zone_type",       "rbr"),
-                    "status":          z.get("status",          "fresh"),
-                    "base_bars":       z.get("base_bars",        0),
-                    "legout_strength": z.get("legout_strength",  0.0),
-                    "vol_score":       z.get("vol_score",        0.0),
-                })
-            except Exception:
-                pass
-        return out
 
     try:
         buy_zones_raw = scan_zones(
@@ -1203,8 +1212,8 @@ def _crypto_chart_inner(base_clean, df, interval, order, legout_mult,
         # ── pivots ──────────────────────────────────────────────────────────
         "pivots":    pivot_list,
         # ── zones — same keys as /api/chart so chart.js reads them ─────────
-        "buy_zones":  _ser_zones(buy_zones_raw),
-        "sell_zones": _ser_zones(sell_zones_raw),
+        "buy_zones":  _serialise_zones(buy_zones_raw),
+        "sell_zones": _serialise_zones(sell_zones_raw),
         # ── trend & metrics ─────────────────────────────────────────────────
         "trend":    trend,
         "atr":      atr_val,

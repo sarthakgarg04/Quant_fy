@@ -531,7 +531,8 @@ def scan_zones(
     max_base_candles: int = 8,
     start_idx: int = 0,
     include_atr: bool = True,
-    include_consolidation: bool = True,
+    include_consolidation: bool = False,
+    _prepared: bool = False,         
 ) -> List[ZoneDict]:
     """
     Run zone detection methods based on include_* flags.
@@ -550,7 +551,8 @@ def scan_zones(
     -------
     List of ZoneDict sorted by time_start, deduplicated, status-tagged.
     """
-    df = _prepare_df(df)
+    if not _prepared:
+        df = _prepare_df(df)
     all_zones: List[ZoneDict] = []
 
     if include_atr:

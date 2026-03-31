@@ -31,7 +31,7 @@ from __future__ import annotations
 from typing import List, Tuple, Dict, Any, Optional, Set
 import pandas as pd
 
-from algos.pivot_engine import extrems, PivotList
+from algos.pivot_engine import extrems, detect_trend, PivotList
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -329,6 +329,8 @@ def get_multiorder_structure(
         pvts            = extrems(df, order=order, min_strength=min_strength)
         s               = get_pivot_structure(pvts)
         s["order"]      = order
+        s["pivots"]     = pvts          # ← ADD: expose pivot list for downstream reuse
+        s["trend"]      = detect_trend(pvts)  # ← ADD: trend label at this order level
         results[level]  = s
 
     states = [

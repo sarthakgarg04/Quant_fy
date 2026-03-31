@@ -315,7 +315,7 @@ const Scanner = (() => {
       b.className = 'seg-btn' + (b.dataset.v === assetClass ? ' buy' : '');
     });
   
-    // Show/hide TF buttons based on data-asset attribute
+    // Show/hide scan TF buttons based on data-asset attribute
     document.querySelectorAll('#tfc-row .tfc').forEach(b => {
       const attr = b.dataset.asset || 'both';
       const visible = attr === 'both'
@@ -357,6 +357,22 @@ const Scanner = (() => {
     const rcnt = document.getElementById('rcnt');
     if (rcnt) rcnt.textContent = '—';
   
+    // ── NEW: Show/hide chart TF buttons based on asset class ──────────────
+    document.querySelectorAll('.tfg .tfb').forEach(b => {
+      const attr = b.dataset.asset || 'both';
+      const visible = attr === 'both'
+        || (isCrypto  && attr === 'crypto')
+        || (!isCrypto && attr === 'equity');
+      b.style.display = visible ? '' : 'none';
+    });
+
+    // ── NEW: Reset chart TF to sensible default for the new asset class ───
+    const defaultChartTF = isCrypto ? '15m' : '1d';
+    chartTF = defaultChartTF;
+    document.querySelectorAll('.tfg .tfb').forEach(b => {
+      b.classList.toggle('on', b.dataset.tf === defaultChartTF && b.offsetParent !== null);
+    });
+
     // Persist
     try { sessionStorage.setItem('qs_scanner_asset', assetClass); } catch (_) {}
   }
@@ -367,45 +383,6 @@ const Scanner = (() => {
     return a?.dataset.v || 'buy';
   }
 
-  function setAsset(btn) {
-    assetClass = btn.dataset.v;   // "equity" | "crypto"
-  
-    // Button active state
-    document.querySelectorAll("#asset-seg .seg-btn").forEach(b => {
-      b.className = "seg-btn";
-    });
-    btn.className = "seg-btn buy";   // "buy" class gives the filled highlight style
-  
-    // Show correct TF row
-    const isC = assetClass === "crypto";
-    document.getElementById("tfc-equity").style.display = isC ? "none"  : "flex";
-    document.getElementById("tfc-crypto").style.display = isC ? "flex"  : "none";
-    document.getElementById("crypto-tf-note").style.display = isC ? "block" : "none";
-  
-    // Update asset badge in results header
-    const badge = document.getElementById("asset-badge");
-    if (badge) {
-      badge.textContent = isC ? "₿ CRYPTO" : "EQUITY";
-      badge.style.background   = isC ? "rgba(245,158,11,0.12)" : "rgba(99,102,241,0.12)";
-      badge.style.borderColor  = isC ? "rgba(245,158,11,0.3)"  : "rgba(99,102,241,0.3)";
-      badge.style.color        = isC ? "#f59e0b"               : "var(--accent)";
-    }
-  
-    // Clear results when switching asset class (stale data from other class)
-    rows      = [];
-    currentRow = null;
-    activeIdx  = -1;
-    document.getElementById("rlist").innerHTML = `
-      <div class="empty-st">
-        <div class="e-ico">${isC ? "₿" : "📊"}</div>
-        <div class="e-txt">Press Scan to find ${isC ? "crypto" : "equity"} setups</div>
-        <div class="e-sub">Configure filters → Run Scan</div>
-      </div>`;
-    document.getElementById("rcnt").textContent = "—";
-  
-    // Persist
-    try { sessionStorage.setItem(SS_ASSET_KEY, assetClass); } catch (_) {}
-  }
  
 
   function setTFC(btn) {
@@ -1225,16 +1202,20 @@ const Scanner = (() => {
   ════════════════════════════════════════════════════════════ */
   async function init() {
     QS.renderNav('scanner', 'nst', 'nbadge');
-    function _restoreAssetClass() {
-      const saved = sessionStorage.getItem(SS_ASSET_KEY);
-      if (saved === "crypto") {
-        const btn = document.querySelector('#asset-seg [data-v="crypto"]');
-        if (btn) setAsset(btn);
-      }
-    }
 
     await _loadStateGroups();
     _renderStructureFilters();
+
+    // Restore asset class FIRST — before restoring rows, 
+    // so rows are rendered in the correct asset context
+    const savedAsset = sessionStorage.getItem(SS_ASSET_KEY);
+    if (savedAsset === 'crypto') {
+      const btn = document.querySelector('#asset-seg [data-v="crypto"]');
+      if (btn) setAsset(btn);   // ← THIS CALL WAS MISSING
+    }
+
+    _restoreUIState();   // restores rows, TF, dir, etc. — runs AFTER asset is restored
+  
 
     // Global click handler — closes structure dropdowns ONLY if click
     // was outside the currently open wrapper.

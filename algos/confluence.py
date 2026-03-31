@@ -82,6 +82,9 @@ def confluence_score(
     order: int = 5,
     htf: Optional[HTFContext] = None,
     direction: str = "buy",
+    # Optional pre-computed values — pass these to avoid redundant calls
+    pivots:     Optional[list] = None,
+    atr_series: Optional["pd.Series"] = None,
 ) -> Dict[str, Any]:
     """
     Composite score [0..1] for entry quality.
@@ -93,7 +96,7 @@ def confluence_score(
     htf_alignment   0.25
     vol_regime      0.15
     """
-    pvts  = extrems(df, order=order)
+    pvts  = pivots if pivots is not None else extrems(df, order=order)
     trend = detect_trend(pvts)
     ts    = _TREND_SCORE.get(trend, 0.3)
 
@@ -112,7 +115,7 @@ def confluence_score(
         elif direction == "sell" and htf.is_bullish: htf_score = 0.1
 
     # Volatility regime: low ATR% = cleaner signals
-    atr  = compute_atr(df)
+    atr     = atr_series if atr_series is not None else compute_atr(df)
     atr_pct = float(atr.iloc[-1] / df["Close"].iloc[-1])
     vol_score = 1.0 - min(atr_pct / 0.04, 1.0)  # 4% ATR/price = worst case
 
