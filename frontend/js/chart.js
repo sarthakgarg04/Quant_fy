@@ -226,7 +226,18 @@ async function _renderPivots(d, ticker, params, candles) {
 
     // Use pivots embedded in chart response (same df as scanner) if available
     const moP = d.multiorder_pivots || {};
-    const [pvH, pvM, pvL] = (moP.H && moP.M && moP.L)
+    const hasScanPivots = moP.H && moP.M && moP.L;
+
+    if (!hasScanPivots) {
+      // This means the chart will show different pivots than the scanner used.
+      // Should never happen after Step 3 hardening. If it does, investigate.
+      API.logEvent('warn', 'chart',
+        'multiorder_pivots missing — falling back to /api/trend. Pivot sets may diverge.',
+        { ticker, tf, OH, OM, OL }
+      );
+    }
+
+    const [pvH, pvM, pvL] = hasScanPivots
       ? [moP.H, moP.M, moP.L]
       : await Promise.all([
           _fetchPivots(ticker, tf, OH),

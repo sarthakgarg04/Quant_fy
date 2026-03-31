@@ -81,6 +81,15 @@ def _trend_only_result(
     trend: str,
     strength: dict,
     mo: Dict[str, Any],
+    order: int = 5,
+    eff_low: int = 5,
+    eff_mid: int = 10,
+    eff_high: int = 20,
+    multi_order: bool = False,
+    zone_lookback: int = 20,
+    legout_mult: float = 1.35,
+    strategy: str = "trend_only",
+    interval: str = "1d",
 ) -> Dict[str, Any]:
     atr_val = float(compute_atr(df).iloc[-1])
     close   = float(df["Close"].iloc[-1])
@@ -107,6 +116,20 @@ def _trend_only_result(
         "lr_label": lr["label"],
     }
     result.update(_structure_fields(mo))
+
+    # ── DATA LINEAGE: stamp exact qualification params ──────────────
+    result["scan_params"] = {
+        "order":         order,
+        "order_low":     eff_low,
+        "order_mid":     eff_mid,
+        "order_high":    eff_high,
+        "multi_order":   multi_order,
+        "zone_lookback": zone_lookback,
+        "legout_mult":   legout_mult,
+        "strategy":      strategy,
+        "interval":      interval,
+    }
+
     return result
 
 
@@ -132,6 +155,7 @@ def analyse_symbol(
     structure_filter_mid:  Optional[Set[str]] = None,
     structure_filter_high: Optional[Set[str]] = None,
     alignment_filter: str = "any",
+    interval: str = "1d",  
 ) -> Optional[Dict[str, Any]]:
     try:
         if df is None or len(df) < max(50, order * 4):
@@ -188,7 +212,12 @@ def analyse_symbol(
 
         # Trend only — skip zones
         if strategy == "trend_only":
-            return _trend_only_result(ticker, df, pvts, trend, strength, mo)
+            return _trend_only_result(
+                ticker, df, pvts, trend, strength, mo,
+                order=order, eff_low=eff_low, eff_mid=eff_mid, eff_high=eff_high,
+                multi_order=multi_order, zone_lookback=zone_lookback,
+                legout_mult=legout_mult, strategy=strategy, interval=interval,
+            )
 
         # Zone detection
         atr_val   = float(compute_atr(df).iloc[-1])
@@ -251,6 +280,20 @@ def analyse_symbol(
             "lr_label": lr["label"],
         }
         result.update(_structure_fields(mo))
+
+        # ── DATA LINEAGE: stamp exact qualification params ──────────────
+        result["scan_params"] = {
+            "order":         order,
+            "order_low":     eff_low,
+            "order_mid":     eff_mid,
+            "order_high":    eff_high,
+            "multi_order":   multi_order,
+            "zone_lookback": zone_lookback,
+            "legout_mult":   legout_mult,
+            "strategy":      strategy,
+            "interval":      interval,   # ← df doesn't carry interval; see note below
+        }
+
         return result
 
     except Exception as e:
@@ -280,6 +323,7 @@ def scan_watchlist(
     structure_filter_high: Optional[List[str]] = None,
     alignment_filter: str = "any",
     max_workers: int = 6,
+    interval: str = "1d",   
 ) -> pd.DataFrame:
 
     tf_set  = set(trend_filter)          if trend_filter          else None
@@ -314,6 +358,7 @@ def scan_watchlist(
             structure_filter_mid=sf_mid,
             structure_filter_high=sf_high,
             alignment_filter=alignment_filter,
+            interval=interval,          
         )
 
     results = []

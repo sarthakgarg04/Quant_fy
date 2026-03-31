@@ -553,6 +553,86 @@ const Scanner = (() => {
   /* ════════════════════════════════════════════════════════════
      STOCK SELECTION + CHART LOAD
   ════════════════════════════════════════════════════════════ */
+  /* ════════════════════════════════════════════════════════════
+   CHART CONTEXT
+   
+   Two modes based on whether chartTF matches the scan interval:
+     SCAN_CONTEXT  → pivot params locked to scan_params (lineage)
+     EXPLORE       → pivot params from current UI inputs
+  ════════════════════════════════════════════════════════════ */
+
+  // Returns true if current chartTF matches the TF this row was scanned on
+  function _inScanContext(row) {
+    const scanTF = (row.scan_params || {}).interval || getScanTF();
+    return chartTF === scanTF;
+  }
+
+  // Build chart params — locked to scan_params in scan context,
+  // free UI inputs in explore mode
+  function _buildChartParams(row) {
+    const sp = row.scan_params || {};
+
+    if (_inScanContext(row) && sp.order) {
+      // ── SCAN CONTEXT: use lineage-locked params ──────────────────────
+      API.logEvent('info', 'scanner', 'Chart params: SCAN CONTEXT', {
+        ticker: row.ticker, tf: chartTF,
+        order: sp.order, order_low: sp.order_low,
+      });
+      return {
+        interval:      chartTF,
+        order:         sp.order,
+        legout_mult:   sp.legout_mult   ?? $('legout').value,
+        strategy:      sp.strategy      ?? $('strat').value,
+        zone_lookback: sp.zone_lookback ?? $('zlb').value,
+        multi_order:   sp.multi_order   ?? $('moen').checked,
+        order_low:     sp.order_low,
+        order_mid:     sp.order_mid,
+        order_high:    sp.order_high,
+      };
+    }
+
+    // ── EXPLORE MODE: use current UI inputs ──────────────────────────
+    API.logEvent('info', 'scanner', 'Chart params: EXPLORE MODE', {
+      ticker: row.ticker, chartTF,
+      scanTF: sp.interval || getScanTF(),
+      order: $('order').value,
+    });
+    return {
+      interval:      chartTF,
+      order:         $('order').value,
+      legout_mult:   $('legout').value,
+      strategy:      $('strat').value,
+      zone_lookback: $('zlb').value,
+      multi_order:   $('moen').checked,
+      order_low:     $('mol').value,
+      order_mid:     $('mom').value,
+      order_high:    $('moh').value,
+    };
+  }
+
+  // Update the context badge in the chart header
+  function _updateContextBadge(row) {
+    const badge = $('tf-context-badge');
+    if (!badge) return;
+    const sp = row.scan_params || {};
+    const scanTF = sp.interval || getScanTF();
+
+    if (chartTF === scanTF) {
+      badge.style.display = 'none';
+      badge.textContent   = '';
+    } else {
+      badge.textContent   = `exploring ${chartTF.toUpperCase()} · scanned on ${scanTF.toUpperCase()}`;
+      badge.style.display = 'inline-block';
+    }
+  }
+
+  // Zone legin marker is only valid on the scan TF
+  function _getZoneLegInTs(row) {
+    return _inScanContext(row) ? row.zone_legin_ts : null;
+  }
+
+  /* ────────────────────────────────────────────────────────── */
+
   async function selStock(i, fromTFButton = false) {
     const row = rows[i];
     if (!row) {
@@ -560,11 +640,9 @@ const Scanner = (() => {
       return;
     }
 
-    // Sync chartTF to scan TF only on first click from results list.
-    // NOT when called from setChartTF (fromTFButton=true) — that would
-    // overwrite the user's explicit TF button choice back to the scan TF.
-    if (!currentRow && !fromTFButton) {
-      const scanTF = getScanTF();
+    // On first click from results list, snap TF to scan interval → land in scan context
+    if (!fromTFButton && !currentRow) {
+      const scanTF = (row.scan_params || {}).interval || getScanTF();
       if (chartTF !== scanTF) {
         chartTF = scanTF;
         document.querySelectorAll('.tfg .tfb').forEach(b =>
@@ -572,65 +650,62 @@ const Scanner = (() => {
         );
       }
     }
-    // 
 
-    // Skip if same stock + same TF already showing
+    // Guard: already showing this ticker on this TF
     if (currentRow && currentRow.ticker === row.ticker && currentRow._tf === chartTF) {
-      API.logEvent('debug', 'scanner', 'selStock guard hit (already showing)', {
-        ticker: row.ticker, tf: chartTF, idx: i,
-      });
+      API.logEvent('debug', 'scanner', 'selStock guard hit', { ticker: row.ticker, tf: chartTF });
       _markActive(i);
       return;
     }
 
     API.logEvent('info', 'scanner', 'selStock: loading chart', {
       ticker: row.ticker, tf: chartTF, idx: i,
-      prevTicker: currentRow ? currentRow.ticker : null,
-      prevTF: currentRow ? currentRow._tf : null,
+      mode: _inScanContext(row) ? 'scan_context' : 'explore',
     });
 
     _markActive(i);
     currentRow = { ...row, _tf: chartTF };
 
-    $('cptk').textContent = row.ticker.replace('.NS','');
+    // Header
+    $('cptk').textContent = row.ticker.replace('.NS', '');
     $('cppr').textContent = QS.inr(row.close);
     const te = $('cptr');
     te.textContent   = QS.trendLabel(row.trend);
     te.className     = 'tbadge ' + QS.trendClass(row.trend);
     te.style.display = 'inline-block';
 
+    // Metrics — suppress scan-specific values when exploring a different TF
+    const inCtx = _inScanContext(row);
     $('m1').textContent = row.atr_pct + '%';
     $('m2').textContent = row.trend_strength || '—';
-    $('m3').textContent = row.zones_count ?? '—';
-    $('m4').textContent = row.bars_ago != null ? row.bars_ago + 'b' : '—';
+    $('m3').textContent = inCtx ? (row.zones_count ?? '—') : '—';
+    $('m4').textContent = inCtx && row.bars_ago != null ? row.bars_ago + 'b' : '—';
     $('m5').textContent = row.pivot_count ?? '—';
-    const vp = (row.vel_current||0) >= 0;
-    $('m6').textContent = `${vp?'+':''}${row.vel_current}`;
+    const vp = (row.vel_current || 0) >= 0;
+    $('m6').textContent = `${vp ? '+' : ''}${row.vel_current}`;
     $('m6').className   = 'mv ' + (vp ? 'pos' : 'neg');
-    $('m7').textContent = (row.lr_ratio||0) + '×';
-    $('m7').className   = 'mv ' + ((row.lr_ratio||1) >= 1 ? 'pos' : 'neg');
+    $('m7').textContent = (row.lr_ratio || 0) + '×';
+    $('m7').className   = 'mv ' + ((row.lr_ratio || 1) >= 1 ? 'pos' : 'neg');
     $('m8').textContent = row.amp_avg || '—';
 
-    await Chart.load(row.ticker, {
-      interval:      chartTF,          order:        $('order').value,
-      legout_mult:   $('legout').value, strategy:     $('strat').value,
-      zone_lookback: $('zlb').value,   multi_order:  $('moen').checked,
-      order_low:     $('mol').value,   order_mid:    $('mom').value,
-      order_high:    $('moh').value,
-    }, row.direction || getDir(), row.zone_legin_ts);
+    // Context badge
+    _updateContextBadge(row);
 
-    API.logEvent('info', 'scanner', 'Chart loaded', {
-      ticker: row.ticker,
-      tf: chartTF,
-    });
+    // Load chart with correct params for current mode
+    await Chart.load(
+      row.ticker,
+      _buildChartParams(row),
+      row.direction || getDir(),
+      _getZoneLegInTs(row),
+    );
 
-    try { sessionStorage.setItem(SS_ROWS_KEY, JSON.stringify({ rows, activeIdx })); } catch(_){}
+    API.logEvent('info', 'scanner', 'Chart loaded', { ticker: row.ticker, tf: chartTF });
+    try { sessionStorage.setItem(SS_ROWS_KEY, JSON.stringify({ rows, activeIdx })); } catch (_) {}
   }
 
   function setChartTF(tf, btn) {
     const prevTF = chartTF;
     chartTF = tf;
-
     document.querySelectorAll('.tfg .tfb').forEach(b => b.classList.remove('on'));
     btn.classList.add('on');
     Chart.bustCache(tf);
@@ -639,17 +714,12 @@ const Scanner = (() => {
 
     API.logEvent('info', 'scanner', 'Chart TF changed', {
       from: prevTF, to: tf,
-      activeIdx: activeIdx,
       ticker: currentRow ? currentRow.ticker : null,
     });
 
-    // FIX: do NOT write currentRow._tf = tf here.
-    // If we mutate currentRow._tf before selStock() runs, selStock's guard
-    // sees (same ticker + same _tf as chartTF) and exits early — chart never reloads.
-    // Instead: clear currentRow so the guard is bypassed, then call selStock().
     if (activeIdx >= 0 && rows[activeIdx]) {
-      currentRow = null;        // ← force guard bypass in selStock
-      selStock(activeIdx, true); ;
+      currentRow = null;               // force guard bypass in selStock
+      selStock(activeIdx, true);       // fromTFButton=true → don't snap TF back
     } else {
       API.logEvent('warn', 'scanner', 'TF changed but no active symbol', { tf });
     }
