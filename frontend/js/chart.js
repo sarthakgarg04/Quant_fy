@@ -185,7 +185,7 @@ const Chart = (() => {
       _renderZones(zones, candles, activeLegInTs);
 
       /* ── 4. Pivots ─────────────────────────────────────────── */
-      await _renderPivots(d, ticker, params);
+      await _renderPivots(d, ticker, params, candles);
       if (seq !== _seq) return;
 
       /* ── 5. Scroll to latest ───────────────────────────────── */
@@ -205,100 +205,126 @@ const Chart = (() => {
   }
 
   /* ── _renderPivots ────────────────────────────────────────── */
-  async function _renderPivots(d, ticker, params) {
-    const moEnabled = params.multi_order === true || params.multi_order === 'true';
-    const seq = _seq;
+  /* ── _renderPivots ────────────────────────────────────────── */
+async function _renderPivots(d, ticker, params, candles) {
+  const moEnabled = params.multi_order === true || params.multi_order === 'true';
+  const seq = _seq;
 
-    if (!moEnabled) {
-      _pivotSeries['single'] = _addPivotSeries(d.pivots || [], '#3b82f6', 'single', seq);
-    } else {
-      const OH = parseInt(params.order_high) || 20;
-      const OM = parseInt(params.order_mid)  || 10;
-      const OL = parseInt(params.order_low)  || 5;
-      const tf = params.interval || '1d';
+  const _c   = (Array.isArray(candles) && candles.length) ? candles : [];
+  const tMin = _c.length ? _c[0].time                : 0;
+  const tMax = _c.length ? _c[_c.length - 1].time    : Number.MAX_SAFE_INTEGER;
 
-      const [pvH, pvM, pvL] = await Promise.all([
-        _fetchPivots(ticker, tf, OH),
-        _fetchPivots(ticker, tf, OM),
-        _fetchPivots(ticker, tf, OL),
-      ]);
-      if (seq !== _seq) return;
+  if (!moEnabled) {
+    _pivotSeries['single'] = _addPivotSeries(
+      d.pivots || [], '#3b82f6', 'single', seq, tMin, tMax
+    );
+  } else {
+    const OH = parseInt(params.order_high) || 20;
+    const OM = parseInt(params.order_mid)  || 10;
+    const OL = parseInt(params.order_low)  || 5;
+    const tf = params.interval || '1d';
 
-      _pivotSeries['H'] = _addPivotSeries(pvH.length ? pvH : (d.pivots||[]), '#7c3aed', 'H', seq);
-      _pivotSeries['M'] = _addPivotSeries(pvM.length ? pvM : (d.pivots||[]), '#1d4ed8', 'M', seq);
-      _pivotSeries['L'] = _addPivotSeries(pvL.length ? pvL : (d.pivots||[]), '#16a34a', 'L', seq);
-    }
-    _applyVisibility();
+    // Use pivots embedded in chart response (same df as scanner) if available
+    const moP = d.multiorder_pivots || {};
+    const [pvH, pvM, pvL] = (moP.H && moP.M && moP.L)
+      ? [moP.H, moP.M, moP.L]
+      : await Promise.all([
+          _fetchPivots(ticker, tf, OH),
+          _fetchPivots(ticker, tf, OM),
+          _fetchPivots(ticker, tf, OL),
+        ]);
+
+    if (seq !== _seq) return;
+
+    _pivotSeries['H'] = _addPivotSeries(
+      pvH.length ? pvH : (d.pivots||[]), '#7c3aed', 'H', seq, tMin, tMax
+    );
+    _pivotSeries['M'] = _addPivotSeries(
+      pvM.length ? pvM : (d.pivots||[]), '#1d4ed8', 'M', seq, tMin, tMax
+    );
+    _pivotSeries['L'] = _addPivotSeries(
+      pvL.length ? pvL : (d.pivots||[]), '#16a34a', 'L', seq, tMin, tMax
+    );
   }
+  _applyVisibility();
+}
 
   /* ── _addPivotSeries ─────────────────────────────────────── */
-  function _addPivotSeries(pivots, color, levelKey, loadSeq) {
-    if (!_chart) return [];
+  function _addPivotSeries(pivots, color, levelKey, loadSeq, tMin, tMax) {
+  if (!_chart) return [];
 
-    const clean = _sanitise(
-      (pivots || []).map(p => ({
-        time:  p.time,
-        value: p.value != null && isFinite(p.value) ? p.value : null,
-        type:  p.type,
-      }))
-    ).filter(p => p.value != null);
+  const _tMin = (tMin != null && isFinite(tMin)) ? tMin : 0;
+  const _tMax = (tMax != null && isFinite(tMax)) ? tMax : Number.MAX_SAFE_INTEGER;
 
-    if (!clean.length) { _pivotSeries[levelKey] = []; return []; }
+  const clean = _sanitise(
+    (pivots || []).map(p => ({
+      time:  p.time,
+      value: p.value != null && isFinite(p.value) ? p.value : null,
+      type:  p.type,
+    }))
+  ).filter(p =>
+    p.value != null &&
+    p.time  >= _tMin &&
+    p.time  <= _tMax
+  );
 
-    let s;
-    try {
-      s = _chart.addLineSeries({
-        color: 'transparent', lineWidth: 1,
-        crosshairMarkerVisible: false,
-        lastValueVisible: false, priceLineVisible: false,
-      });
-    } catch (e) {
-      console.error('[pivots] addLineSeries:', e.message);
-      _broken = true; return [];
-    }
+  if (!clean.length) { _pivotSeries[levelKey] = []; return []; }
 
-    try { s.setData(clean.map(p => ({ time: p.time, value: p.value }))); }
-    catch (e) {
-      console.error('[pivots] setData:', levelKey, e.message);
-      _broken = true;
-      try { _chart.removeSeries(s); } catch(_) {}
-      return [];
-    }
-
-    try {
-      const markers = _sanitiseMarkers(clean.map(p => ({
-        time:     p.time,
-        position: p.type === 'T' ? 'aboveBar' : 'belowBar',
-        color:    p.type === 'T' ? '#ef4444'  : '#22c55e',
-        shape:    p.type === 'T' ? 'arrowDown': 'arrowUp',
-        size:     1,
-      })));
-      if (markers.length) s.setMarkers(markers);
-    } catch (e) { console.warn('[pivots] setMarkers:', levelKey, e.message); }
-
-    if (loadSeq !== undefined && loadSeq !== _seq) {
-      try { _chart && _chart.removeSeries(s); } catch(_) {}
-      _pivotSeries[levelKey] = [];
-      return [];
-    }
-    _xtra.push(s);
-    _pivotSeries[levelKey] = [s];
-    return [s];
+  let s;
+  try {
+    s = _chart.addLineSeries({
+      color: 'transparent', lineWidth: 1,
+      crosshairMarkerVisible: false,
+      lastValueVisible: false, priceLineVisible: false,
+    });
+  } catch (e) {
+    console.error('[pivots] addLineSeries:', e.message);
+    _broken = true; return [];
   }
+
+  try { s.setData(clean.map(p => ({ time: p.time, value: p.value }))); }
+  catch (e) {
+    console.error('[pivots] setData:', levelKey, e.message);
+    _broken = true;
+    try { _chart.removeSeries(s); } catch(_) {}
+    return [];
+  }
+
+  try {
+    const markers = _sanitiseMarkers(clean.map(p => ({
+      time:     p.time,
+      position: p.type === 'T' ? 'aboveBar' : 'belowBar',
+      color:    p.type === 'T' ? '#ef4444'  : '#22c55e',
+      shape:    p.type === 'T' ? 'arrowDown': 'arrowUp',
+      size:     1,
+    })));
+    if (markers.length) s.setMarkers(markers);
+  } catch (e) { console.warn('[pivots] setMarkers:', levelKey, e.message); }
+
+  if (loadSeq !== undefined && loadSeq !== _seq) {
+    try { _chart && _chart.removeSeries(s); } catch(_) {}
+    _pivotSeries[levelKey] = [];
+    return [];
+  }
+  _xtra.push(s);
+  _pivotSeries[levelKey] = [s];
+  return [s];
+}
 
   /* ── _fetchPivots ────────────────────────────────────────── */
   async function _fetchPivots(ticker, tf, order) {
-    const key = `${ticker}|${tf}|${order}`;
-    if (_cache[key]) return _cache[key];
-    // Use interval-appropriate lookback — avoids UDAPI1148 on 1m/5m
-    const _dayMap = { '1m': 7, '5m': 30, '15m': 30, '1h': 90, '4h': 90 };
-    const days = _dayMap[tf] || 500;
-    try {
-      const data = await API.trendData(ticker, { interval: tf, order, days });
-      _cache[key] = data.pivots || [];
-      return _cache[key];
-    } catch(_) { return []; }
-  }
+  const _dayMap  = { '1m': 7, '5m': 30, '15m': 30, '1h': 90, '4h': 90 };
+  const lookback = _dayMap[tf] || 500;
+
+  const key = `${ticker}|${tf}|${order}|${lookback}`;
+  if (_cache[key]) return _cache[key];
+
+  try {
+    const data = await API.trendData(ticker, { interval: tf, order, days: lookback });
+    _cache[key] = data.pivots || [];
+    return _cache[key];
+  } catch(_) { return []; }
+}
 
   /* ── _renderZones ────────────────────────────────────────── */
   function _renderZones(zones, candles, activeLegInTs) {

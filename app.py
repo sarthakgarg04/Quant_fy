@@ -518,6 +518,21 @@ def chart_data(ticker):
     }
     if multiorder_data:
         payload["multiorder"] = multiorder_data
+
+    # Embed full-history pivots per order so chart uses same data as scanner
+    if multi_order:
+        try:
+            mp = {}
+            for lbl, ord_val in [('H', order_high), ('M', order_mid), ('L', order_low)]:
+                mp[lbl] = [
+                    {"time": int(pd.Timestamp(df.index[i]).timestamp()),
+                     "value": round(float(v), 2), "type": t}
+                    for i, v, t in extrems(df, order=ord_val)
+                ]
+            payload["multiorder_pivots"] = mp
+        except Exception as e:
+            print(f"[chart] multiorder_pivots error: {e}")
+
     return jsonify(payload)
 
 
