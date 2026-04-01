@@ -65,9 +65,9 @@ const QS = (() => {
 
   /* ── Nav injection ──────────────────────────────────────── */
   const PAGES = [
-    { key: 'scanner', href: '/',      label: 'Scanner'      },
-    { key: 'trend',   href: '/trend', label: 'Trend Viewer' },
-    { key: 'data',    href: '/data',  label: 'Data Fetch'   },
+    { key: 'scanner', href: '/',      label: 'Zone Scanner'  },
+    { key: 'trend',   href: '/trend', label: 'Trend Scanner' },
+    { key: 'data',    href: '/data',  label: 'Data Fetch'    },
   ];
 
   function renderNav(activePage, statusId, badgeId) {

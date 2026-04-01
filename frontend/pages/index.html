@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Scanner – QuantScanner</title>
+<title>Zone Scanner – QuantScanner</title>
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/components.css">
 <link rel="stylesheet" href="/css/layout.css">
@@ -68,10 +68,9 @@
       <div>
         <div class="slbl">Zone Strategy</div>
         <select id="strat" class="ctrl" onchange="Scanner.onStrategyChange()">
-          <option value="atr">ATR Body (RBR + DBR)</option>
-          <option value="consolidation">Consolidation (Volume)</option>
-          <option value="both">Both Methods</option>
-          <option value="trend_only">Trend Only (no zone)</option>
+          <option value="atr">ATR Zones</option>
+          <option value="consolidation">Consolidation</option>
+          <option value="both">Both</option>
         </select>
         <div id="atr-sub-row" style="display:flex;gap:10px;margin-top:8px;padding:8px 10px;
              background:var(--s2);border:1px solid var(--border);border-radius:var(--r2);flex-wrap:wrap">
@@ -90,17 +89,20 @@
             <input type="checkbox" id="atr-rbd" style="accent-color:var(--accent);width:13px;height:13px"><span>RBD</span>
           </label>
         </div>
-        <div id="trend-only-notice" style="display:none;margin-top:6px;font-size:11px;color:var(--muted);
-             padding:6px 8px;background:var(--s2);border:1px solid var(--border);border-radius:var(--r2)">
-          No zone required — ranks by ATR volatility.
-        </div>
       </div>
 
-      <!-- Pivot Order — #order is hidden value holder; buttons render in chart header -->
-      <div>
-        <input type="number" id="order" value="5" style="display:none">
-        <span id="pivot-order-legend" style="display:none"></span>
+
+      <!-- Pivot Order — visible stepper in single-order mode -->
+      <div id="single-order-row">
+        <div class="slbl">Pivot Order</div>
+        <div class="num-row">
+          <button class="adj" onclick="Scanner.stp('order',-1)">−</button>
+          <input type="number" id="order" class="ctrl" value="5" min="2" max="50"
+                 style="padding:5px 8px;font-size:13px;font-weight:700;text-align:center">
+          <button class="adj" onclick="Scanner.stp('order',1)">+</button>
+        </div>
       </div>
+      <span id="pivot-order-legend" style="display:none"></span>
 
       <!-- Zone Parameters -->
       <div>
@@ -200,10 +202,13 @@
           </div>
         </div>
       </div>
+      </div><!-- ts-scroll -->
 
+    <!-- Scan button pinned to bottom — always visible regardless of scroll -->
+    <div style="padding:10px 12px;border-top:1px solid var(--border);flex-shrink:0;background:var(--surface)">
       <button class="scan-btn" id="scanbtn" onclick="Scanner.runScan()">▶  Run Scan</button>
+    </div>
 
-    </div><!-- sb-scroll -->
   </aside>
 
   <!-- ═══ RESULTS PANEL ═══ -->
@@ -319,6 +324,7 @@
 <script src="/js/shared.js"></script>
 <script src="/js/api.js"></script>
 <script src="/js/chart.js"></script>
+<script src="/js/filters.js"></script>
 <script src="/js/scanner.js"></script>
 </body>
 </html>

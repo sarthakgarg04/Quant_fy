@@ -246,6 +246,7 @@ html, body { height: 100vh; overflow: hidden; }
   padding:        0 6px;
   outline:        none;
   -moz-appearance: textfield;
+  appearance:      textfield;
   min-width:      0;
 }
 .num-row input[type="number"]::-webkit-inner-spin-button,

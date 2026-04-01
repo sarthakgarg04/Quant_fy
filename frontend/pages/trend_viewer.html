@@ -2,160 +2,608 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Trend Viewer – QuantScanner</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Trend Scanner – QuantScanner</title>
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/components.css">
 <link rel="stylesheet" href="/css/layout.css">
+<link rel="stylesheet" href="/css/crypto.css">
+<style>
+/* ─── Page layout ─────────────────────────────────────────── */
+.ts-main {
+  display: flex;
+  height: calc(100vh - var(--nav-h));
+  overflow: hidden;
+  margin-top: var(--nav-h);
+}
+
+/* ─── Left filter sidebar ─────────────────────────────────── */
+.ts-sidebar {
+  width: 270px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: visible;         /* ← was hidden — must be visible so header button isn't clipped */
+  transition: width .28s ease;
+  position: relative;
+  z-index: 10;
+}
+.ts-sidebar.col { width: 44px; }
+.ts-sidebar.col .ts-scroll { opacity: 0; pointer-events: none; }
+.ts-sidebar.col #ts-scan-footer { opacity: 0; pointer-events: none; }
+.ts-sidebar.col .ts-sb-title { opacity: 0; }
+.ts-sidebar.col .sb-arr { transform: rotate(180deg) !important; }
+
+/* Keep the toggle button always visible even when collapsed */
+.ts-sb-header {
+  min-width: 44px;          /* never shrinks below button width */
+  overflow: visible;         /* button doesn't get clipped */
+}
+.ts-sidebar.col .ts-sb-header {
+  justify-content: center;  /* centre the lone button when collapsed */
+  padding: 0 9px;
+}
+.ts-sidebar.col .ts-sb-title {
+  display: none;             /* hide text, not just opacity */
+}
+
+.ts-sb-header {
+  height: 48px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+.ts-sb-title {
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--mono);
+  color: var(--muted2);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  white-space: nowrap;
+  transition: opacity .18s;
+}
+.ts-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  transition: opacity .18s;
+}
+
+/* ─── Results list panel ──────────────────────────────────── */
+.ts-results {
+  width: 290px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: var(--bg);
+  overflow: hidden;
+}
+.ts-results-hdr {
+  height: 44px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.ts-results-title {
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--mono);
+  color: var(--muted2);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  flex: 1;
+}
+.ts-rcnt {
+  font-size: 11px;
+  font-family: var(--mono);
+  font-weight: 700;
+  color: var(--accent);
+  background: rgba(99,102,241,.12);
+  border: 1px solid rgba(99,102,241,.25);
+  padding: 1px 7px;
+  border-radius: 10px;
+}
+.ts-rcnt.crypto { color: #f59e0b; background: rgba(245,158,11,.12); border-color: rgba(245,158,11,.25); }
+.ts-rlist { flex: 1; overflow-y: auto; }
+
+/* ─── Result rows ─────────────────────────────────────────── */
+.tsr {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background .1s;
+}
+.tsr:hover { background: var(--s2); }
+.tsr.on { background: var(--s3); border-left: 2px solid var(--accent); }
+.tsr-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; }
+.tsr-ticker { font-size: 12px; font-weight: 700; font-family: var(--mono); color: var(--text); }
+.tsr-price  { font-size: 11px; font-family: var(--mono); color: var(--muted); }
+.tsr-badges { display: flex; flex-direction: column; gap: 3px; }
+.tsr-badge  {
+  font-size: 9px; font-weight: 700; font-family: var(--mono);
+  padding: 2px 6px; border-radius: 3px; letter-spacing: .4px;
+  white-space: nowrap; display: inline-block;
+}
+.ss-bull { background: rgba(34,197,94,.12);  color: #22c55e; border: 1px solid rgba(34,197,94,.25); }
+.ss-bear { background: rgba(239,68,68,.12);  color: #ef4444; border: 1px solid rgba(239,68,68,.25); }
+.ss-neut { background: rgba(245,158,11,.10); color: #f59e0b; border: 1px solid rgba(245,158,11,.2); }
+
+/* ─── Analysis column ─────────────────────────────────────── */
+.ts-analysis {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Chart header — same height/style as Zone Scanner .cph */
+.ts-ahdr {
+  height: 48px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  gap: 8px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+}
+.ts-aticker { font-size: 16px; font-weight: 700; font-family: var(--mono); white-space: nowrap; }
+.ts-aprice  { font-size: 13px; font-weight: 600; font-family: var(--mono); color: var(--green); white-space: nowrap; }
+
+/* Chart + metrics take all remaining height */
+.ts-chart-col {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+#ts-cw { flex: 1; position: relative; min-height: 0; }
+
+/* ─── Hover-reveal stats drawer ────────────────────────────── */
+#ts-drawer-trigger {
+  position: absolute;
+  top: 0; right: 0; bottom: 0;
+  width: 18px;
+  z-index: 60;
+  cursor: e-resize;
+}
+#ts-stats-drawer {
+  position: absolute;
+  top: 0; right: 0; bottom: 0;
+  width: 255px;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: -10px 0 28px rgba(0,0,0,.5);
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform .22s cubic-bezier(.4,0,.2,1);
+  z-index: 55;
+  overflow: hidden;
+}
+#ts-drawer-trigger:hover ~ #ts-stats-drawer,
+#ts-stats-drawer:hover { transform: translateX(0); }
+
+.ts-pull-tab {
+  position: absolute;
+  right: 0; top: 50%;
+  transform: translateY(-50%);
+  width: 18px; height: 56px;
+  background: var(--s3);
+  border: 1px solid var(--border);
+  border-right: none;
+  border-radius: 4px 0 0 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 7px;
+  color: var(--muted2);
+  writing-mode: vertical-rl;
+  letter-spacing: 1.5px;
+  font-family: var(--mono);
+  font-weight: 700;
+  text-transform: uppercase;
+  z-index: 58;
+  pointer-events: none;
+  transition: opacity .22s;
+}
+#ts-stats-drawer:hover ~ .ts-pull-tab,
+#ts-drawer-trigger:hover ~ .ts-pull-tab { opacity: 0; }
+
+.ts-drawer-hdr {
+  height: 44px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+  gap: 8px;
+}
+.ts-drawer-hdr-label {
+  font-size: 9px; font-weight: 700; font-family: var(--mono);
+  color: var(--muted2); text-transform: uppercase; letter-spacing: 1px;
+}
+#ts-drawer-ticker {
+  font-size: 13px; font-weight: 700; font-family: var(--mono); color: var(--text);
+}
+.ts-drawer-scroll {
+  flex: 1; overflow-y: auto; padding: 12px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+
+/* ─── Drawer stat cards ───────────────────────────────────── */
+.ts-stat {
+  background: var(--s2); border: 1px solid var(--border);
+  border-radius: var(--r2); padding: 8px 10px;
+}
+.ts-stat-l {
+  font-size: 8px; font-weight: 700; font-family: var(--mono);
+  color: var(--muted2); text-transform: uppercase; letter-spacing: .8px;
+}
+.ts-stat-v { font-size: 13px; font-weight: 600; font-family: var(--mono); margin-top: 3px; }
+
+.ts-sec-lbl {
+  font-size: 9px; font-weight: 700; font-family: var(--mono);
+  color: var(--muted2); text-transform: uppercase; letter-spacing: 1px;
+  display: flex; align-items: center; gap: 6px;
+}
+.ts-sec-lbl::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+.ts-conf-row { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); margin-bottom: 3px; }
+.ts-conf-track { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; margin-bottom: 7px; }
+.ts-conf-fill  { height: 100%; border-radius: 2px; transition: width .3s; }
+
+.ts-mo-bar { margin-bottom: 8px; }
+.ts-mo-hdr { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; }
+.ts-mo-lbl   { font-size: 10px; font-weight: 700; font-family: var(--mono); }
+.ts-mo-trend { font-size: 10px; color: var(--muted); }
+
+.ts-etable { width: 100%; border-collapse: collapse; font-size: 10px; }
+.ts-etable th {
+  text-align: left; padding: 3px 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 8px; font-family: var(--mono);
+  color: var(--muted2); text-transform: uppercase; letter-spacing: .5px;
+}
+.ts-etable td { padding: 4px; border-bottom: 1px solid var(--border); font-family: var(--mono); }
+
+/* ─── Shim / empty states ─────────────────────────────────── */
+.ts-empty {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; height: 100%; gap: 8px; color: var(--muted);
+}
+.ts-empty-ico { font-size: 26px; opacity: .4; }
+.ts-empty-txt { font-size: 13px; }
+.ts-empty-sub { font-size: 11px; opacity: .6; }
+.ts-shim { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.ts-sh { background: var(--s3); border-radius: 3px; animation: shimmer 1.4s ease infinite; }
+@keyframes shimmer { 0%,100%{opacity:.4} 50%{opacity:.9} }
+
+/* ─── Scan button ─────────────────────────────────────────── */
+.ts-scan-btn {
+  width: 100%; height: 38px;
+  border-radius: var(--r2);
+  background: var(--accent); color: #fff;
+  border: none; font-size: 12px; font-weight: 700;
+  font-family: var(--mono); letter-spacing: .5px;
+  cursor: pointer; transition: background .12s;
+}
+.ts-scan-btn:hover { background: var(--accentd); }
+.ts-scan-btn:disabled { opacity: .45; cursor: not-allowed; }
+</style>
 </head>
 <body>
-
 <nav id="qs-nav"></nav>
 
-<div class="tv-main">
+<div class="ts-main">
 
-  <!-- ── Params panel ── -->
-  <div class="tv-params">
-    <div>
-      <div class="slbl" style="margin-bottom:8px">Symbol</div>
-      <div style="display:flex;gap:8px">
-        <input type="text" id="tkr" class="ctrl" placeholder="RELIANCE"
-               style="flex:1;font-size:14px;font-weight:600;letter-spacing:.4px"
-               onkeydown="if(event.key==='Enter') Trend.analyse()">
-        <button class="btn btn-primary btn-sm" onclick="Trend.analyse()">Go</button>
-      </div>
+  <!-- ══ LEFT SIDEBAR — scan filters ══ -->
+  <aside class="ts-sidebar" id="ts-sidebar">
+    <div class="ts-sb-header">
+      <span class="ts-sb-title">Filters</span>
+      <button class="sb-tog" onclick="TrendScanner.toggleSB()" title="Toggle sidebar">
+        <span class="sb-arr">◀</span>
+      </button>
     </div>
+    <div class="ts-scroll" id="ts-scroll">
 
-    <div class="divider"></div>
-
-    <div class="slbl">Parameters</div>
-
-    <div class="field">
-      <label class="ctrl-label">Timeframe</label>
-      <select id="tfs" class="ctrl">
-        <option value="1d">Daily (1D)</option>
-        <option value="1wk">Weekly (1W)</option>
-        <option value="1h">Hourly (1H)</option>
-        <option value="4h">4-Hour</option>
-        <option value="15m">15-Min</option>
-      </select>
-    </div>
-    <div class="field">
-      <label class="ctrl-label">Lookback Days</label>
-      <input type="number" id="days" class="ctrl" value="500" min="50" max="3000">
-    </div>
-    <div class="field">
-      <label class="ctrl-label">Pivot Order</label>
-      <input type="number" id="ord" class="ctrl" value="5" min="1" max="50">
-    </div>
-    <div class="field">
-      <label class="ctrl-label">Min Strength % of Price (0 = off)</label>
-      <input type="number" id="msp" class="ctrl" value="0" step="0.1" min="0" max="5">
-    </div>
-    <div class="field">
-      <label class="ctrl-label">ATR Strength Multiplier (0 = off)</label>
-      <input type="number" id="atr" class="ctrl" value="0.0" step="0.1" min="0" max="5">
-    </div>
-
-    <div class="divider"></div>
-    <div class="slbl" style="margin-bottom:8px">Multi-Order Analysis</div>
-
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-      <input type="checkbox" id="tv-mo-enable"
-             style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer"
-             onchange="Trend.toggleMO(this.checked)">
-      <label for="tv-mo-enable" style="font-size:12px;cursor:pointer">Enable Multi-Order</label>
-    </div>
-
-    <div id="tv-mo-inputs" style="display:flex;flex-direction:column;gap:8px;opacity:.35;pointer-events:none">
-      <div class="field">
-        <label class="ctrl-label">High Order</label>
-        <input type="number" id="tv-mo-high" class="ctrl" value="20" min="1" max="100">
-      </div>
-      <div class="field">
-        <label class="ctrl-label">Mid Order</label>
-        <input type="number" id="tv-mo-mid" class="ctrl" value="10" min="1" max="60">
-      </div>
-      <div class="field">
-        <label class="ctrl-label">Low Order</label>
-        <input type="number" id="tv-mo-low" class="ctrl" value="5" min="1" max="30">
-      </div>
-    </div>
-
-    <button class="btn btn-primary" id="abtn" onclick="Trend.analyse()">Analyse</button>
-
-    <div class="divider"></div>
-
-    <!-- Results -->
-    <div id="tv-res" style="display:none;flex-direction:column;gap:12px">
-
-      <div id="tv-tdisp" class="trend-display tco">–</div>
-
-      <div class="tv-stat-grid" id="tv-sgs"></div>
-
-      <div id="tv-mo-section" style="display:none">
-        <div class="slbl" style="margin-bottom:8px">
-          Multi-Order Breakdown
-          <span id="tv-mo-align" style="margin-left:8px;color:var(--amber);font-size:11px;font-weight:400;text-transform:none;letter-spacing:0"></span>
+      <!-- Asset Class -->
+      <div>
+        <div class="slbl">Asset Class</div>
+        <div class="seg" id="ts-asset-seg">
+          <button class="seg-btn buy" data-v="equity" onclick="TrendScanner.setAsset(this)">📈 Equity</button>
+          <button class="seg-btn"     data-v="crypto" onclick="TrendScanner.setAsset(this)">₿ Crypto</button>
         </div>
-        <div id="tv-mo-bars" style="display:flex;flex-direction:column;gap:6px"></div>
       </div>
 
+      <!-- Timeframe -->
       <div>
-        <div class="slbl" style="margin-bottom:8px">Structure Metrics</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px" id="tv-struct-grid"></div>
+        <div class="slbl">Timeframe</div>
+        <div class="tfc-row" id="ts-tfc-row">
+          <button class="tfc on" data-v="1d"  data-asset="equity" onclick="TrendScanner.setTFC(this)">1D</button>
+          <button class="tfc"    data-v="1wk" data-asset="equity" onclick="TrendScanner.setTFC(this)">1W</button>
+          <button class="tfc"    data-v="4h"  data-asset="both"   onclick="TrendScanner.setTFC(this)">4H</button>
+          <button class="tfc"    data-v="1h"  data-asset="both"   onclick="TrendScanner.setTFC(this)">1H</button>
+          <button class="tfc"    data-v="15m" data-asset="both"   onclick="TrendScanner.setTFC(this)">15m</button>
+          <button class="tfc"    data-v="5m"  data-asset="both"   onclick="TrendScanner.setTFC(this)">5m</button>
+          <button class="tfc"    data-v="1m"  data-asset="both"   onclick="TrendScanner.setTFC(this)">1m</button>
+          <button class="tfc"    data-v="3m"  data-asset="crypto" style="display:none" onclick="TrendScanner.setTFC(this)">3m</button>
+        </div>
       </div>
 
+      <!-- Pivot Order -->
       <div>
-        <div class="slbl" style="margin-bottom:8px">Confluence Breakdown</div>
-        <div id="tv-cbars"></div>
+        <div class="slbl">Pivot Order</div>
+        <div class="stpw">
+          <button class="stpb" onclick="TrendScanner.stp('ts-order',-1)">−</button>
+          <input type="number" id="ts-order" value="5" min="2" max="30">
+          <button class="stpb" onclick="TrendScanner.stp('ts-order',1)">+</button>
+        </div>
       </div>
 
+      <!-- Multi-Order — same moc/mob/motog/molk pattern as Zone Scanner -->
       <div>
-        <div class="slbl" style="margin-bottom:8px">Edge Measurement</div>
-        <table class="etable">
-          <thead><tr><th>Type</th><th>Bars</th><th>N</th><th>Hit%</th><th>Avg R</th><th>Payoff</th></tr></thead>
-          <tbody id="tv-etb"></tbody>
-        </table>
+        <div class="slbl">Multi-Order</div>
+        <div class="moc">
+          <div class="moh-row">
+            <label class="motog" onclick="event.stopPropagation()">
+              <input type="checkbox" id="ts-moen" autocomplete="off"
+                     onchange="TrendScanner.toggleMO(this.checked)">
+              <span class="mos"></span>
+            </label>
+            <span class="mobl">Multi-Order Analysis</span>
+          </div>
+          <div class="mob hid" id="ts-mob">
+            <div class="molv" style="grid-template-columns:40px 1fr">
+              <span class="molk moH">HIGH</span>
+              <div class="field">
+                <span class="ctrl-label">Order</span>
+                <div class="stpw">
+                  <button class="stpb" onclick="TrendScanner.stp('ts-moh',-1)">−</button>
+                  <input type="number" id="ts-moh" value="20" min="2" max="50">
+                  <button class="stpb" onclick="TrendScanner.stp('ts-moh',1)">+</button>
+                </div>
+              </div>
+            </div>
+            <div class="molv" style="grid-template-columns:40px 1fr">
+              <span class="molk moM">MID</span>
+              <div class="field">
+                <span class="ctrl-label">Order</span>
+                <div class="stpw">
+                  <button class="stpb" onclick="TrendScanner.stp('ts-mom',-1)">−</button>
+                  <input type="number" id="ts-mom" value="10" min="2" max="40">
+                  <button class="stpb" onclick="TrendScanner.stp('ts-mom',1)">+</button>
+                </div>
+              </div>
+            </div>
+            <div class="molv" style="grid-template-columns:40px 1fr">
+              <span class="molk moL">LOW</span>
+              <div class="field">
+                <span class="ctrl-label">Order</span>
+                <div class="stpw">
+                  <button class="stpb" onclick="TrendScanner.stp('ts-mol',-1)">−</button>
+                  <input type="number" id="ts-mol" value="5" min="2" max="30">
+                  <button class="stpb" onclick="TrendScanner.stp('ts-mol',1)">+</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
-    </div><!-- tv-res -->
-  </div><!-- tv-params -->
+      <!-- Trend Filter -->
+      <div>
+        <div class="slbl">Trend Filter</div>
+        <div style="position:relative">
+          <button class="ctrl" id="ts-ttrig" style="width:100%;text-align:left;cursor:pointer"
+                  onclick="TrendScanner.toggleTDD(event)">
+            <span id="ts-tlbl">All trends</span>
+            <span style="float:right;opacity:.5">▾</span>
+          </button>
+          <div class="tdd" id="ts-tdd">
+            <label class="tdo all">
+              <input type="checkbox" id="ts-all-t" checked onchange="TrendScanner.allTrends(this)">
+              <span>All trends</span>
+            </label>
+            <div class="tdo"><input type="checkbox" class="ts-tc" value="strong_uptrend" checked><span>Strong uptrend</span></div>
+            <div class="tdo"><input type="checkbox" class="ts-tc" value="continuous_uptrend" checked><span>Continuous uptrend</span></div>
+            <div class="tdo"><input type="checkbox" class="ts-tc" value="up" checked><span>Uptrend</span></div>
+            <div class="tdo"><input type="checkbox" class="ts-tc" value="semi-up" checked><span>Semi-up</span></div>
+            <div class="tdo"><input type="checkbox" class="ts-tc" value="weakening_uptrend" checked><span>Weakening uptrend</span></div>
+            <div class="tdo"><input type="checkbox" class="ts-tc" value="consolidate" checked><span>Consolidating</span></div>
+            <div class="tdo"><input type="checkbox" class="ts-tc" value="weakening_downtrend" checked><span>Weakening downtrend</span></div>
+            <div class="tdo"><input type="checkbox" class="ts-tc" value="down" checked><span>Downtrend</span></div>
+            <div class="tdo"><input type="checkbox" class="ts-tc" value="continuous_downtrend" checked><span>Continuous downtrend</span></div>
+            <div class="tdo"><input type="checkbox" class="ts-tc" value="strong_downtrend" checked><span>Strong downtrend</span></div>
+          </div>
+        </div>
+      </div>
 
-  <!-- ── Chart area ── -->
-  <div class="tv-chart-area">
-    <div class="overlay" id="tv-overlay"></div>
+      <!-- Pivot Structure Filter -->
+      <div>
+        <div class="slbl">Pivot Structure Filter</div>
+        <div id="ts-sf-single-wrap"></div>
+        <div id="ts-sf-multi-wrap" style="display:none"></div>
+        <div style="margin-top:10px">
+          <div class="slbl">Alignment</div>
+          <select id="ts-align" class="ctrl" style="font-size:11px">
+            <option value="any">Any</option>
+            <option value="majority_bull">Majority Bull</option>
+            <option value="majority_bear">Majority Bear</option>
+            <option value="all_match">All Match</option>
+          </select>
+        </div>
+      </div>
 
-    <div class="tv-chart-hdr">
-      <span class="tv-ticker" id="tv-ticker">—</span>
-      <span class="tv-price"  id="tv-price">—</span>
-      <div id="tv-trend-badge" style="font-size:11px;padding:2px 10px;border-radius:99px;background:var(--s3)">—</div>
-      <div class="tfg" style="margin-left:auto" id="tfg">
-        <button class="tfb on" onclick="Trend.quickTF('1d',this)">1D</button>
-        <button class="tfb"    onclick="Trend.quickTF('1wk',this)">1W</button>
-        <button class="tfb"    onclick="Trend.quickTF('1h',this)">1H</button>
+      </div><!-- ts-scroll -->
+
+    <!-- Scan button pinned to bottom — always visible regardless of scroll -->
+    <div id="ts-scan-footer" style="padding:10px 12px;border-top:1px solid var(--border);flex-shrink:0;background:var(--surface);transition:opacity .18s">
+      <button class="scan-btn" id="ts-scanbtn" onclick="TrendScanner.runScan()">▶  Run Scan</button>
+    </div>
+
+  </aside>
+
+  <!-- ══ RESULTS LIST ══ -->
+  <div class="ts-results">
+    <div class="ts-results-hdr">
+      <span id="ts-asset-badge" style="font-size:9px;font-weight:700;font-family:var(--mono);
+            padding:2px 7px;border-radius:3px;letter-spacing:.4px;
+            background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.3);color:var(--accent)">EQUITY</span>
+      <span class="ts-results-title">Scan Results</span>
+      <span class="ts-rcnt" id="ts-rcnt">—</span>
+    </div>
+    <div class="ts-rlist" id="ts-rlist">
+      <div class="ts-empty">
+        <div class="ts-empty-ico">📊</div>
+        <div class="ts-empty-txt">Press Scan to find setups</div>
+        <div class="ts-empty-sub">Configure filters → Run Scan</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ ANALYSIS PANEL ══ -->
+  <div class="ts-analysis">
+
+    <!-- Chart header -->
+    <div class="ts-ahdr">
+      <span class="ts-aticker" id="ts-aticker">—</span>
+      <span class="ts-aprice"  id="ts-aprice"></span>
+      <span id="ts-atrend" class="tbadge t-co" style="display:none"></span>
+
+      <!-- Pivot order buttons — rendered by JS, same as Zone Scanner -->
+      <div class="pivot-ctrl" id="ts-pivot-ctrl">
+        <span class="pivot-ctrl-lbl">Pivots:</span>
+        <div class="pivot-order-group" id="ts-pivot-order-btns"></div>
+      </div>
+
+      <!-- Chart TF buttons -->
+      <div class="tfg" style="margin-left:auto">
+        <button class="tfb" data-tf="1wk" data-asset="equity" onclick="TrendScanner.setChartTF('1wk',this)">1W</button>
+        <button class="tfb" data-tf="1w"  data-asset="crypto" style="display:none" onclick="TrendScanner.setChartTF('1w',this)">1W</button>
+        <button class="tfb on" data-tf="1d" data-asset="both" onclick="TrendScanner.setChartTF('1d',this)">1D</button>
+        <button class="tfb" data-tf="4h"  data-asset="both"   onclick="TrendScanner.setChartTF('4h', this)">4H</button>
+        <button class="tfb" data-tf="1h"  data-asset="both"   onclick="TrendScanner.setChartTF('1h', this)">1H</button>
+        <button class="tfb" data-tf="15m" data-asset="both"   onclick="TrendScanner.setChartTF('15m',this)">15m</button>
+        <button class="tfb" data-tf="5m"  data-asset="both"   onclick="TrendScanner.setChartTF('5m', this)">5m</button>
+        <button class="tfb" data-tf="3m"  data-asset="crypto" style="display:none" onclick="TrendScanner.setChartTF('3m', this)">3m</button>
+        <button class="tfb" data-tf="1m"  data-asset="both"   onclick="TrendScanner.setChartTF('1m', this)">1m</button>
       </div>
     </div>
 
-    <div class="cpleg">
-      <span class="li"><span class="ld" style="background:#ef4444"></span>Top (T)</span>
-      <span class="li"><span class="ld" style="background:#22c55e"></span>Bottom (B)</span>
-      <span id="tv-pcnt" style="margin-left:auto;font-size:11px;color:var(--muted)"></span>
-    </div>
+    <!-- Chart column + hover drawer -->
+    <div class="ts-chart-col">
 
-    <div id="tv-chart-wrap">
-      <div id="cload" style="position:absolute;inset:0;z-index:50;background:rgba(13,15,18,.75);display:none;align-items:center;justify-content:center">
+      <!-- Chart canvas — chart.js targets id="cw" -->
+      <div id="ts-cw" style="flex:1;min-height:0;position:relative">
+        <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center" id="ts-cw-empty">
+          <div class="ts-empty">
+            <div class="ts-empty-ico">📈</div>
+            <div class="ts-empty-txt">Select a symbol to view chart</div>
+          </div>
+        </div>
+      </div>
+      <div id="cload" style="position:absolute;inset:0;z-index:50;
+           background:rgba(13,15,18,.7);display:none;
+           align-items:center;justify-content:center">
         <div class="spinner spinner-lg"></div>
       </div>
-    </div>
 
-  </div><!-- tv-chart-area -->
-</div><!-- tv-main -->
+      <!-- Metrics bar -->
+      <div class="cpmet">
+        <div class="met"><div class="ml">ATR %</div>    <div class="mv" id="ts-m1">—</div></div>
+        <div class="met"><div class="ml">Structure</div><div class="mv" id="ts-m2">—</div></div>
+        <div class="met"><div class="ml">Pivots</div>   <div class="mv" id="ts-m3">—</div></div>
+        <div class="met"><div class="ml">Vel Δ</div>    <div class="mv" id="ts-m4">—</div></div>
+        <div class="met"><div class="ml">LR</div>       <div class="mv" id="ts-m5">—</div></div>
+        <div class="met"><div class="ml">Amp</div>      <div class="mv" id="ts-m6">—</div></div>
+      </div>
+
+      <!-- Pull tab — visible at right edge when drawer is closed -->
+      <div class="ts-pull-tab">INFO</div>
+
+      <!-- Invisible hover-trigger strip at right edge -->
+      <div id="ts-drawer-trigger"></div>
+
+      <!-- Stats drawer — slides in on hover -->
+      <div id="ts-stats-drawer">
+        <div class="ts-drawer-hdr">
+          <span class="ts-drawer-hdr-label">Analysis</span>
+          <span id="ts-drawer-ticker"></span>
+        </div>
+        <div class="ts-drawer-scroll">
+
+          <div class="ts-empty" id="ts-stats-empty" style="height:160px">
+            <div class="ts-empty-ico" style="font-size:20px">◈</div>
+            <div class="ts-empty-txt" style="font-size:11px">Select a symbol</div>
+          </div>
+
+          <div id="ts-stats-content" style="display:none;flex-direction:column;gap:12px">
+
+            <div id="ts-tdisp" class="trend-display tco" style="font-size:13px;padding:7px 10px">–</div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px" id="ts-stat-grid"></div>
+
+            <div id="ts-mo-section" style="display:none">
+              <div class="ts-sec-lbl" style="margin-bottom:8px">
+                Multi-Order
+                <span id="ts-mo-align" style="font-size:9px;color:var(--amber);font-weight:400;text-transform:none;letter-spacing:0;margin-left:4px"></span>
+              </div>
+              <div id="ts-mo-bars"></div>
+            </div>
+
+            <div>
+              <div class="ts-sec-lbl" style="margin-bottom:8px">Confluence</div>
+              <div id="ts-cbars"></div>
+            </div>
+
+            <div>
+              <div class="ts-sec-lbl" style="margin-bottom:8px">Structure</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px" id="ts-struct-grid"></div>
+            </div>
+
+            <div>
+              <div class="ts-sec-lbl" style="margin-bottom:8px">Edge</div>
+              <table class="ts-etable">
+                <thead><tr><th>Type</th><th>Bars</th><th>N</th><th>Hit%</th><th>Avg R</th><th>PO</th></tr></thead>
+                <tbody id="ts-etb"></tbody>
+              </table>
+            </div>
+
+          </div><!-- ts-stats-content -->
+        </div><!-- ts-drawer-scroll -->
+      </div><!-- ts-stats-drawer -->
+
+    </div><!-- ts-chart-col -->
+  </div><!-- ts-analysis -->
+
+</div><!-- ts-main -->
 
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <script src="/js/shared.js"></script>
 <script src="/js/api.js"></script>
 <script src="/js/chart.js"></script>
-<script src="/js/trend.js"></script>
+<script src="/js/filters.js"></script>
+<script src="/js/trend_scanner.js"></script>
 </body>
 </html>

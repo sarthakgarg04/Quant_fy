@@ -614,11 +614,37 @@ def chart_data(ticker):
         try:
             mo = get_multiorder_structure(df, order_low=order_low, order_mid=order_mid, order_high=order_high)
             def _mol(lv):
-                v   = mo[lv]; pvts = v["pivots"]   ; vel  = compute_pivot_velocity(pvts); amp  = compute_pivot_amplitude(pvts); lr   = compute_leg_ratio(pvts)
-                return {"order": v["order"], "trend": v["trend"], "score": v["score"], "pivot_count": v["pivot_count"],
-                        "velocity":  {"current_vel": vel["current_vel"], "avg_velocity": vel["avg_velocity"], "acceleration": vel["acceleration"], "accel_label": vel["accel_label"], "trend_vel": vel["trend_vel"]},
-                        "amplitude": {"avg_amplitude": amp["avg_amplitude"], "recent_avg": amp["recent_avg"], "regime": amp["regime"], "variance_pct": amp["variance_pct"], "amplitude_trend": amp["amplitude_trend"]},
-                        "leg_ratio": {"ratio": lr["ratio"], "recent_ratio": lr["recent_ratio"], "avg_bull": lr["avg_bull"], "avg_bear": lr["avg_bear"], "label": lr["label"]}}
+                v   = mo[lv]
+                vel = v.get("velocity",  {})
+                amp = v.get("amplitude", {})
+                lr  = v.get("leg_ratio", {})
+                return {
+                    "order":       v.get("order", 0),
+                    "trend":       v.get("trend", ""),
+                    "score":       v.get("score", 0),
+                    "pivot_count": v.get("pivot_count", 0),
+                    "velocity":  {
+                        "current_vel":  vel.get("current_vel",  0),
+                        "avg_velocity": vel.get("avg_velocity", 0),
+                        "acceleration": vel.get("acceleration", 0),
+                        "accel_label":  vel.get("accel_label",  ""),
+                        "trend_vel":    vel.get("trend_vel",    0),
+                    },
+                    "amplitude": {
+                        "avg_amplitude":   amp.get("avg_amplitude",   0),
+                        "recent_avg":      amp.get("recent_avg",      0),
+                        "regime":          amp.get("regime",          ""),
+                        "variance_pct":    amp.get("variance_pct",    0),
+                        "amplitude_trend": amp.get("amplitude_trend", ""),
+                    },
+                    "leg_ratio": {
+                        "ratio":        lr.get("ratio",        1),
+                        "recent_ratio": lr.get("recent_ratio", 1),
+                        "avg_bull":     lr.get("avg_bull",     0),
+                        "avg_bear":     lr.get("avg_bear",     0),
+                        "label":        lr.get("label",        ""),
+                    },
+                }
             multiorder_data = {"low": _mol("low"), "mid": _mol("mid"), "high": _mol("high"),
                                "alignment": mo["alignment"], "combined_trend": mo.get("combined_trend", ""),
             }
@@ -727,15 +753,50 @@ def _trend(ticker, params):
     if multi_order:
         try:
             mo = get_multiorder_structure(df, order_low=order_low, order_mid=order_mid, order_high=order_high)
+
+            def _mo_level(lv):
+                v   = mo[lv]
+                vel = v.get("velocity",  {})
+                amp = v.get("amplitude", {})
+                lr  = v.get("leg_ratio", {})
+                return {
+                    "order":       v.get("order", 0),
+                    "trend":       v.get("trend", ""),
+                    "score":       v.get("score", 0),
+                    "pivot_count": v.get("pivot_count", 0),
+                    "velocity": {
+                        "current_vel":  vel.get("current_vel",  0),
+                        "avg_velocity": vel.get("avg_velocity", 0),
+                        "acceleration": vel.get("acceleration", 0),
+                        "accel_label":  vel.get("accel_label",  ""),
+                        "trend_vel":    vel.get("trend_vel",    0),
+                    },
+                    "amplitude": {
+                        "avg_amplitude":   amp.get("avg_amplitude",   0),
+                        "recent_avg":      amp.get("recent_avg",      0),
+                        "regime":          amp.get("regime",          ""),
+                        "variance_pct":    amp.get("variance_pct",    0),
+                        "amplitude_trend": amp.get("amplitude_trend", ""),
+                    },
+                    "leg_ratio": {
+                        "ratio":        lr.get("ratio",        1),
+                        "recent_ratio": lr.get("recent_ratio", 1),
+                        "avg_bull":     lr.get("avg_bull",     0),
+                        "avg_bear":     lr.get("avg_bear",     0),
+                        "label":        lr.get("label",        ""),
+                    },
+                }
+
             payload["multiorder"] = {
-                "low":  {"order": mo["low"]["order"],  "trend": mo["low"]["trend"],  "score": mo["low"]["score"],  "velocity": mo["low"]["velocity"],  "amplitude": mo["low"]["amplitude"],  "leg_ratio": mo["low"]["leg_ratio"]},
-                "mid":  {"order": mo["mid"]["order"],  "trend": mo["mid"]["trend"],  "score": mo["mid"]["score"],  "velocity": mo["mid"]["velocity"],  "amplitude": mo["mid"]["amplitude"],  "leg_ratio": mo["mid"]["leg_ratio"]},
-                "high": {"order": mo["high"]["order"], "trend": mo["high"]["trend"], "score": mo["high"]["score"], "velocity": mo["high"]["velocity"], "amplitude": mo["high"]["amplitude"], "leg_ratio": mo["high"]["leg_ratio"]},
-                "alignment": mo["alignment"], "combined_trend": mo["combined_trend"],
+                "low":            _mo_level("low"),
+                "mid":            _mo_level("mid"),
+                "high":           _mo_level("high"),
+                "alignment":      mo["alignment"],
+                "combined_trend": mo.get("combined_trend", ""),
             }
             if "confluence" in payload and payload["confluence"]:
                 payload["confluence"]["htf_score"] = mo["alignment"] / 3.0
-                payload["confluence"]["htf_trend"] = mo["combined_trend"]
+                payload["confluence"]["htf_trend"] = mo.get("combined_trend", "")
         except Exception as e:
             print(f"[trend] multiorder error: {e}")
 

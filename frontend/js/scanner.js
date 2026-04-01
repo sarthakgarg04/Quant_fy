@@ -84,205 +84,42 @@ const Scanner = (() => {
      Fixed by: single-wrap is emptied (not just hidden) when
      switching to multi mode, and vice versa.
   ════════════════════════════════════════════════════════════ */
-  let _stateGroups = {};
-  let _stateAll    = [];
-  const _selected  = { low: new Set(), mid: new Set(), high: new Set() };
-
-  // Track the currently open structure dropdown wrapper element
-  let _openDdWrapper = null;
-
-  async function _loadStateGroups() {
-    try {
-      const d      = await fetch('/api/structure_states').then(r => r.json());
-      _stateGroups = d.groups || {};
-      _stateAll    = d.all    || [];
-    } catch (_) {
-      _stateGroups = {
-        'Bullish – Continuation': [
-          {value:'trending_up',       label:'Trending Up'},
-        ],
-        'Bullish – Reversal': [
-          {value:'breakout',          label:'Breakout'},
-          {value:'bottom_breaking',   label:'Bottom Breaking'},
-          {value:'bottoming',         label:'Bottoming'},
-        ],
-        'Bullish – Setup': [
-          {value:'coiling_to_up',     label:'Coiling → Up'},
-          {value:'expanding_to_up',   label:'Expanding → Up'},
-          {value:'structure_up',      label:'Structure Up'},
-        ],
-        'Bearish – Continuation': [
-          {value:'trending_down',     label:'Trending Down'},
-        ],
-        'Bearish – Reversal': [
-          {value:'breakdown',         label:'Breakdown'},
-          {value:'top_breaking',      label:'Top Breaking'},
-          {value:'topping',           label:'Topping'},
-        ],
-        'Bearish – Setup': [
-          {value:'coiling_to_down',   label:'Coiling → Down'},
-          {value:'expanding_to_down', label:'Expanding → Down'},
-          {value:'structure_down',    label:'Structure Down'},
-        ],
-        'Neutral': [
-          {value:'structure_expanding', label:'Expanding'},
-          {value:'structure_coiling',   label:'Coiling'},
-        ],
-      };
-      _stateAll = Object.values(_stateGroups).flat();
-    }
-  }
+  // Structure filter — delegated to shared Filters module
+  const _F = Filters.create('sc');
+  Filters._register(_F);
+  const _selected = _F.selected;   // keep _selected alias for existing code
 
   /* Build ONE dropdown for a given level.
      Key: unique IDs use level + a random suffix to guarantee
      no ID collision when both single and multi wrappers exist.  */
-  function _buildStructureDropdown(level) {
-    const sel    = _selected[level];
-    const allSel = sel.size === 0;
-    const lbl    = allSel ? 'Any state' : `${sel.size} selected`;
-    // Unique wrapper ID — used to track _openDdWrapper
-    const wrId   = `sfwrap-${level}`;
-    const ddId   = `sfdd-${level}`;
-    const trigId = `sftrig-${level}`;
-    const lblId  = `sflbl-${level}`;
-    const allId  = `sfall-${level}`;
-
-    let optHtml = `
-      <div style="padding:7px 12px;border-bottom:1px solid var(--border)">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;
-               font-size:12px;color:var(--accent);font-family:var(--mono)">
-          <input type="checkbox" id="${allId}" ${allSel ? 'checked' : ''}
-                 onchange="Scanner.__sfAllToggle('${level}',this.checked)">
-          All states
-        </label>
-      </div>`;
-
-    for (const [grpName, states] of Object.entries(_stateGroups)) {
-      optHtml += `<div class="tdg">${grpName}</div>`;
-      for (const {value, label} of states) {
-        const chk = (sel.size === 0 || sel.has(value)) ? 'checked' : '';
-        optHtml += `
-          <div class="tdo">
-            <input type="checkbox" class="sfc-${level}" value="${value}" ${chk}
-                   onchange="Scanner.__sfChange('${level}')">
-            <span style="color:${structColor(value)}">${label}</span>
-          </div>`;
-      }
-    }
-
-    // CRITICAL: onclick on the wrapper div stops bubbling so clicks
-    // inside never reach the document handler that closes all dropdowns.
-    return `
-      <div class="tdw" id="${wrId}" onclick="event.stopPropagation()">
-        <button class="trig" id="${trigId}"
-                onclick="Scanner.__sfToggle(event,'${level}','${wrId}')">
-          <span id="${lblId}">${lbl}</span>
-          <span class="tarr">▼</span>
-        </button>
-        <div class="tdd" id="${ddId}" style="max-height:260px;overflow-y:auto">
-          ${optHtml}
-        </div>
-      </div>`;
-  }
 
   function _renderStructureFilters() {
-    const moOn  = $('moen') && $('moen').checked;
-    const sw    = $('sf-single-wrap');
-    const mw    = $('sf-multi-wrap');
-    if (!sw || !mw) return;
-
-    // Always clear both wrappers to remove duplicate IDs from DOM
-    sw.innerHTML = '';
-    mw.innerHTML = '';
-
-    if (!moOn) {
-      sw.innerHTML     = _buildStructureDropdown('low');
-      sw.style.display = 'block';
-      mw.style.display = 'none';
-    } else {
-      mw.innerHTML = `
-        <div style="display:grid;grid-template-columns:36px 1fr;align-items:start;
-                    gap:6px;margin-bottom:8px">
-          <span class="molk moH" style="font-size:9px;padding-top:8px">HIGH</span>
-          <div>${_buildStructureDropdown('high')}</div>
-        </div>
-        <div style="display:grid;grid-template-columns:36px 1fr;align-items:start;
-                    gap:6px;margin-bottom:8px">
-          <span class="molk moM" style="font-size:9px;padding-top:8px">MID</span>
-          <div>${_buildStructureDropdown('mid')}</div>
-        </div>
-        <div style="display:grid;grid-template-columns:36px 1fr;align-items:start;
-                    gap:6px">
-          <span class="molk moL" style="font-size:9px;padding-top:8px">LOW</span>
-          <div>${_buildStructureDropdown('low')}</div>
-        </div>`;
-      mw.style.display = 'block';
-      sw.style.display = 'none';
-    }
-    // Reset open tracking after re-render
-    _openDdWrapper = null;
+    const moOn = $('moen')?.checked;
+    _F.renderStructureFilters(
+      $('sf-single-wrap'),
+      $('sf-multi-wrap'),
+      moOn,
+      { high: $('moh')?.value, mid: $('mom')?.value, low: $('mol')?.value }
+    );
   }
 
   /* Toggle a structure dropdown open/closed.
      wrapperId identifies the specific wrapper so we can track
      which one is open without relying on getElementById finding
      the wrong element when IDs are duplicated.               */
-  function __sfToggle(e, level, wrapperId) {
-    e.stopPropagation();
-    const dd  = $(`sfdd-${level}`);
-    const trg = $(`sftrig-${level}`);
-    if (!dd) return;
+  function __sfToggle(e, level, wrapperId) { Filters._sfToggle(e, 'sc', level, wrapperId); }
+  function __sfAllToggle(level, checked)   { Filters._sfAllToggle('sc', level, checked); }
+  function __sfChange(level)               { Filters._sfChange('sc', level); }
 
-    const isOpen = dd.classList.contains('op');
-
-    // Close everything first
-    $$('.tdd').forEach(d => d.classList.remove('op'));
-    $$('.trig').forEach(t => t.classList.remove('op'));
-    _openDdWrapper = null;
-
-    if (!isOpen) {
-      dd.classList.add('op');
-      trg && trg.classList.add('op');
-      _openDdWrapper = $(wrapperId);
-    }
-  }
-
-  function __sfAllToggle(level, checked) {
-    $$(`.sfc-${level}`).forEach(cb => { cb.checked = checked; });
-    __sfChange(level);
-  }
-
-  function __sfChange(level) {
-    const sel    = _selected[level];
-    sel.clear();
-    const allCbs = [...$$(`.sfc-${level}`)];
-    const chkCbs = allCbs.filter(c => c.checked);
-    const allSel = chkCbs.length === allCbs.length;
-
-    if (!allSel) chkCbs.forEach(c => sel.add(c.value));
-
-    const lbl = $(`sflbl-${level}`);
-    if (lbl) lbl.textContent = allSel ? 'Any state' : `${sel.size} selected`;
-
-    const allCb = $(`sfall-${level}`);
-    if (allCb) {
-      allCb.checked       = allSel;
-      allCb.indeterminate = !allSel && chkCbs.length > 0;
-    }
-    _saveUIState();
-    // DO NOT close the dropdown — user may want to select more
-  }
-
-  function _getStructureParam(level) {
-    const sel = _selected[level];
-    return sel.size > 0 ? [...sel].join(',') : '';
-  }
+  function _getStructureParam(level) { return _F.getStructureParam(level); }
 
   /* ════════════════════════════════════════════════════════════
      SIDEBAR
   ════════════════════════════════════════════════════════════ */
   function toggleSB() {
-    $('sidebar').classList.toggle('col');
+    const sb = $('sidebar');
+    if (!sb) return;
+    sb.classList.toggle('col');
     _saveUIState();
   }
 
@@ -410,8 +247,7 @@ const Scanner = (() => {
 
   function onStrategyChange() {
     const val = $('strat').value;
-    $('atr-sub-row').style.display       = (val === 'atr' || val === 'both') ? 'flex' : 'none';
-    $('trend-only-notice').style.display = val === 'trend_only' ? 'block' : 'none';
+    $('atr-sub-row').style.display = (val === 'atr' || val === 'both') ? 'flex' : 'none';
     _saveUIState();
   }
 
@@ -450,6 +286,9 @@ const Scanner = (() => {
 
   function toggleMO(enabled) {
     $('mob').classList.toggle('hid', !enabled);
+    // Hide single-order input when multi-order is on, show when off
+    const row = $('single-order-row');
+    if (row) row.style.display = enabled ? 'none' : 'block';
     _updatePivotButtons();
     _renderStructureFilters();
     _saveUIState();
@@ -994,62 +833,69 @@ const Scanner = (() => {
     const isTrendOnly = !r.zone_type || r.zone_type === 'none';
 
     // Three-order structure table
-    const levels = [
-      { lbl:'HIGH', order: r.mo_order_high, state: r.struct_high, pair: r.struct_high_pair, cls:'moH' },
-      { lbl:'MID',  order: r.mo_order_mid,  state: r.struct_mid,  pair: r.struct_mid_pair,  cls:'moM' },
-      { lbl:'LOW',  order: r.mo_order_low,  state: r.struct_low,  pair: r.struct_low_pair,  cls:'moL' },
-    ];
+    const wasMO    = r.scan_params?.multi_order;
     const aln      = r.struct_alignment || '—';
-    const bull     = r.struct_bull_count ?? '—';
-    const bear     = r.struct_bear_count ?? '—';
+    const bull     = r.struct_bull_count ?? 0;
+    const bear     = r.struct_bear_count ?? 0;
     const alnColor = aln==='bullish'?'#22c55e' : aln==='bearish'?'#ef4444' : '#f59e0b';
 
-    const structHtml = `
-    <div>
-      <div class="dwst">Pivot Structure
-        <span style="font-size:9px;font-weight:400;text-transform:none;letter-spacing:0;
-              color:${alnColor};margin-left:4px">
-          ${aln} · 🟢${bull} 🔴${bear}
-        </span>
-        <button onclick="Scanner._resetPivotFocus()" title="Reset to show all levels"
-          style="margin-left:6px;padding:1px 6px;font-size:9px;font-family:var(--mono);
-                 background:var(--s2);border:1px solid var(--border);border-radius:3px;
-                 color:var(--muted);cursor:pointer;transition:all .12s"
-          onmouseover="this.style.color='var(--text)';this.style.borderColor='var(--border2)'"
-          onmouseout="this.style.color='var(--muted)';this.style.borderColor='var(--border)'">
-          ↺ all
-        </button>
-      </div>
-      <div style="font-size:9px;color:var(--muted2);margin-bottom:8px;font-family:var(--mono)">
-        Click a level to isolate its pivots on the chart
-      </div>
-      ${levels.map(lv => {
-        const col    = structColor(lv.state);
-        const slbl   = _structLabel(lv.state);
-        // Map label to chart level key: HIGH→H, MID→M, LOW→L
-        const chartLv = lv.lbl === 'HIGH' ? 'H' : lv.lbl === 'MID' ? 'M' : 'L';
-        return `
-        <div data-level="${chartLv}"
-             onclick="Scanner._focusPivotLevel('${chartLv}', this)"
-             style="display:grid;grid-template-columns:70px 1fr auto;
-                    align-items:center;gap:8px;margin-bottom:5px;
-                    padding:7px 9px;border-radius:6px;cursor:pointer;
-                    border:1px solid var(--border);background:var(--s2);
-                    transition:all .15s"
-             onmouseover="this.style.background='var(--s3)';this.style.borderColor='var(--border2)'"
-             onmouseout="if(!this.classList.contains('pf-active')){this.style.background='var(--s2)';this.style.borderColor='var(--border)'}">
-          <span class="molk ${lv.cls}" style="font-size:9px">${lv.lbl}(${lv.order||'?'})</span>
-          <div>
-            <div style="font-size:11px;font-weight:600;color:${col}">${slbl}</div>
-            <div style="font-size:9px;color:var(--muted2);margin-top:1px;font-family:var(--mono)">${lv.pair||'—'}</div>
-          </div>
-          <div style="display:flex;flex-direction:column;align-items:center;gap:3px">
-            <div style="width:6px;height:6px;border-radius:50%;background:${col}"></div>
-            <span style="font-size:8px;color:var(--muted);font-family:var(--mono)">focus</span>
-          </div>
-        </div>`;
-      }).join('')}
-    </div>`;
+    let structHtml;
+    if (!wasMO) {
+      // Single-order: show one row only, no H/M/L labels, no focus buttons
+      const col  = structColor(r.struct_low);
+      const slbl = _structLabel(r.struct_low);
+      const ord  = r.mo_order_low || (r.scan_params?.order) || '—';
+      structHtml = `
+      <div>
+        <div class="dwst">Pivot Structure</div>
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;
+                    background:var(--s2);border:1px solid var(--border);border-radius:var(--r2)">
+          <span style="font-size:9px;font-family:var(--mono);color:var(--muted2)">Order ${ord}</span>
+          <span style="font-size:12px;font-weight:600;color:${col}">${slbl}</span>
+        </div>
+      </div>`;
+    } else {
+      // Multi-order: full H/M/L table with focus buttons
+      const levels = [
+        { lbl:'HIGH', order: r.mo_order_high, state: r.struct_high, pair: r.struct_high_pair, cls:'moH' },
+        { lbl:'MID',  order: r.mo_order_mid,  state: r.struct_mid,  pair: r.struct_mid_pair,  cls:'moM' },
+        { lbl:'LOW',  order: r.mo_order_low,  state: r.struct_low,  pair: r.struct_low_pair,  cls:'moL' },
+      ];
+      structHtml = `
+      <div>
+        <div class="dwst">Pivot Structure
+          <span style="font-size:9px;font-weight:400;text-transform:none;letter-spacing:0;
+                color:${alnColor};margin-left:4px">
+            ${aln} · 🟢${bull} 🔴${bear}
+          </span>
+          <button onclick="Scanner._resetPivotFocus()" title="Reset to show all levels"
+            style="margin-left:6px;padding:1px 6px;font-size:9px;font-family:var(--mono);
+                   background:var(--s2);border:1px solid var(--border);border-radius:3px;
+                   color:var(--muted);cursor:pointer"
+            onmouseover="this.style.color='var(--text)'"
+            onmouseout="this.style.color='var(--muted)'">↺ all</button>
+        </div>
+        <div style="font-size:9px;color:var(--muted2);margin-bottom:8px;font-family:var(--mono)">
+          Click a level to isolate its pivots on the chart
+        </div>
+        ${levels.map(lv => {
+          const col    = structColor(lv.state);
+          const slbl   = _structLabel(lv.state);
+          const chartLv = lv.lbl === 'HIGH' ? 'H' : lv.lbl === 'MID' ? 'M' : 'L';
+          return `<div class="mobr" data-level="${chartLv}"
+                    style="background:var(--s2);border:1px solid var(--border);
+                           border-radius:var(--r2);padding:7px 10px;margin-bottom:6px;cursor:pointer"
+                    onclick="Scanner._focusPivotLevel('${chartLv}',this)">
+            <span class="molk ${lv.cls}" style="font-size:9px">${lv.lbl}(${lv.order||'—'})</span>
+            <div class="mobi">
+              <div class="mobt" style="color:${col};font-weight:600">${slbl}</div>
+              ${lv.pair ? `<div style="font-size:9px;color:var(--muted2);font-family:var(--mono)">${lv.pair}</div>` : ''}
+            </div>
+            <span style="font-size:9px;color:var(--accent);font-family:var(--mono)">focus</span>
+          </div>`;
+        }).join('')}
+      </div>`;
+    }
 
     const zoneHtml = isTrendOnly ? `
     <div>
@@ -1163,12 +1009,12 @@ const Scanner = (() => {
       if ($(`atr-${t}`) && s[`sc_atr${t.charAt(0).toUpperCase()+t.slice(1)}`] !== undefined)
         $(`atr-${t}`).checked = s[`sc_atr${t.charAt(0).toUpperCase()+t.slice(1)}`];
     });
-    if (s.sc_moEn !== undefined && $('moen')) { $('moen').checked = s.sc_moEn; toggleMO(s.sc_moEn); }
     if (s.sc_moh && $('moh')) $('moh').value = s.sc_moh;
     if (s.sc_mom && $('mom')) $('mom').value = s.sc_mom;
     if (s.sc_mol && $('mol')) $('mol').value = s.sc_mol;
+    if (s.sc_moEn !== undefined && $('moen')) { $('moen').checked = s.sc_moEn; toggleMO(s.sc_moEn); }
     if (s.sc_align && $('align-filter')) $('align-filter').value = s.sc_align;
-    if (s.sc_sbCol) $('sidebar').classList.add('col');
+    if (s.sc_sbCol) $('sidebar')?.classList.add('col');
     if (Array.isArray(s.sc_trends) && s.sc_trends.length) {
       $$('.tc').forEach(cb => {
         const e = s.sc_trends.find(t => t.v === cb.value);
@@ -1176,9 +1022,9 @@ const Scanner = (() => {
       });
       _updateTrendLabel();
     }
-    if (Array.isArray(s.sc_sf_low))  _selected.low  = new Set(s.sc_sf_low);
-    if (Array.isArray(s.sc_sf_mid))  _selected.mid  = new Set(s.sc_sf_mid);
-    if (Array.isArray(s.sc_sf_high)) _selected.high = new Set(s.sc_sf_high);
+    if (Array.isArray(s.sc_sf_low))  { _F.selected.low  = new Set(s.sc_sf_low);  }
+    if (Array.isArray(s.sc_sf_mid))  { _F.selected.mid  = new Set(s.sc_sf_mid);  }
+    if (Array.isArray(s.sc_sf_high)) { _F.selected.high = new Set(s.sc_sf_high); }
 
     // Re-render dropdowns with restored selections
     _renderStructureFilters();
@@ -1203,8 +1049,9 @@ const Scanner = (() => {
   async function init() {
     QS.renderNav('scanner', 'nst', 'nbadge');
 
-    await _loadStateGroups();
+    await Filters.loadStateGroups();   // ← replaces _loadStateGroups()
     _renderStructureFilters();
+    _F.installDocClickHandler();
 
     // Restore asset class FIRST — before restoring rows, 
     // so rows are rendered in the correct asset context
@@ -1219,16 +1066,11 @@ const Scanner = (() => {
 
     // Global click handler — closes structure dropdowns ONLY if click
     // was outside the currently open wrapper.
-    document.addEventListener('click', (e) => {
-      // Close legacy trend dropdown
-      $('tdd').classList.remove('op');
-      $('ttrig').classList.remove('op');
-
-      // Close structure dropdowns only if click outside open wrapper
-      if (_openDdWrapper && !_openDdWrapper.contains(e.target)) {
-        $$('.tdd').forEach(d => d.classList.remove('op'));
-        $$('.trig').forEach(t => t.classList.remove('op'));
-        _openDdWrapper = null;
+    // Trend dropdown only — structure dropdowns handled by Filters module
+    document.addEventListener('click', e => {
+      if (!e.target.closest('#tdd') && !e.target.closest('#ttrig')) {
+        $('tdd')?.classList.remove('op');
+        $('ttrig')?.classList.remove('op');
       }
     });
 
@@ -1252,6 +1094,9 @@ const Scanner = (() => {
     });
 
     _restoreUIState();
+    // Sync single-order row visibility to actual MO state after restore
+    const row = $('single-order-row');
+    if (row) row.style.display = $('moen')?.checked ? 'none' : 'block';
     window.addEventListener('beforeunload', _saveUIState);
   }
 
