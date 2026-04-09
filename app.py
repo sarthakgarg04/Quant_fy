@@ -796,8 +796,10 @@ def _trend(ticker, params):
                 "combined_trend": mo.get("combined_trend", ""),
             }
             if "confluence" in payload and payload["confluence"]:
-                payload["confluence"]["htf_score"] = mo["alignment"] / 3.0
-                payload["confluence"]["htf_trend"] = mo.get("combined_trend", "")
+                aln = mo["alignment"]
+                net = (aln["bull_count"] - aln["bear_count"]) / 3.0          # -1 to +1
+                payload["confluence"]["htf_score"] = (net + 1.0) / 2.0       # 0 to 1
+                payload["confluence"]["htf_trend"] = aln.get("majority", "") 
         except Exception as e:
             print(f"[trend] multiorder error: {e}")
 

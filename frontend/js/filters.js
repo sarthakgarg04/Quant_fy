@@ -33,13 +33,27 @@ const Filters = (() => {
   let _stateAll    = [];
   let _groupsLoaded = false;
 
+  /* ── Bullish / Bearish sets for colour coding ─────────────────────────
+     Kept in sync with BULLISH_STATES / BEARISH_STATES in trend_analysis.py  */
   const BULL_STATES = new Set([
-    'trending_up','breakout','coiling_to_up','expanding_to_up',
-    'bottoming','bottom_breaking','structure_up',
+    'trending_up',
+    'top_coil',
+    'top_expanding',
+    'bottom_expanding_breakout',
+    'bottom_pullback_breakout',
+    'coiling_to_up',
+    'expanding_to_up',
+    'structure_up',
   ]);
   const BEAR_STATES = new Set([
-    'trending_down','breakdown','coiling_to_down','expanding_to_down',
-    'topping','top_breaking','structure_down',
+    'trending_down',
+    'top_expanding_breakdown',
+    'top_pullback_breakdown',
+    'bottom_coil',
+    'bottom_expanding',
+    'coiling_to_down',
+    'expanding_to_down',
+    'structure_down',
   ]);
 
   function _stateColor(v) {
@@ -48,7 +62,12 @@ const Filters = (() => {
     return '#f59e0b';
   }
 
-  /* ── Load structure states from backend (cached, called once) ── */
+  /* ── Load structure states from backend (cached, called once) ─────────
+     The /api/structure_states endpoint derives its response directly from
+     STATE_GROUPS + STATE_LABELS in trend_analysis.py, so it is always
+     the authoritative source. The hardcoded fallback has been removed —
+     if the API is unavailable the dropdowns will show empty rather than
+     stale data. A console warning is emitted so the issue is visible.    */
   async function loadStateGroups() {
     if (_groupsLoaded) return;
     try {
@@ -59,41 +78,14 @@ const Filters = (() => {
         _groupsLoaded = true;
         return;
       }
-    } catch (_) {}
-    /* Fallback hardcoded groups if API unavailable */
-    _stateGroups = {
-      'Bullish – Continuation': [
-        { value: 'trending_up',       label: 'Trending Up'      },
-      ],
-      'Bullish – Reversal': [
-        { value: 'breakout',          label: 'Breakout'         },
-        { value: 'bottom_breaking',   label: 'Bottom Breaking'  },
-        { value: 'bottoming',         label: 'Bottoming'        },
-      ],
-      'Bullish – Setup': [
-        { value: 'coiling_to_up',     label: 'Coiling → Up'     },
-        { value: 'expanding_to_up',   label: 'Expanding → Up'   },
-        { value: 'structure_up',      label: 'Structure Up'     },
-      ],
-      'Bearish – Continuation': [
-        { value: 'trending_down',     label: 'Trending Down'    },
-      ],
-      'Bearish – Reversal': [
-        { value: 'breakdown',         label: 'Breakdown'        },
-        { value: 'top_breaking',      label: 'Top Breaking'     },
-        { value: 'topping',           label: 'Topping'          },
-      ],
-      'Bearish – Setup': [
-        { value: 'coiling_to_down',   label: 'Coiling → Down'   },
-        { value: 'expanding_to_down', label: 'Expanding → Down' },
-        { value: 'structure_down',    label: 'Structure Down'   },
-      ],
-      'Neutral': [
-        { value: 'structure_expanding', label: 'Expanding'      },
-        { value: 'structure_coiling',   label: 'Coiling'        },
-      ],
-    };
-    _stateAll     = Object.values(_stateGroups).flat();
+    } catch (err) {
+      console.warn('[Filters] /api/structure_states unavailable — structure dropdowns will be empty.', err);
+    }
+    /* API failed — leave _stateGroups empty so dropdowns render nothing
+       rather than showing stale hardcoded values that no longer match
+       the backend state strings.                                        */
+    _stateGroups  = {};
+    _stateAll     = [];
     _groupsLoaded = true;
   }
 
@@ -110,9 +102,8 @@ const Filters = (() => {
     const _el = suffix => document.getElementById(_id(suffix));
 
     /* ── Build one structure dropdown ─────────────────────────
-       Identical logic to scanner.js _buildStructureDropdown
-       but uses ns-prefixed IDs to avoid collisions.          */
-    function _buildStructureDropdown(level, callerNs) {
+       Uses ns-prefixed IDs to avoid collisions across pages.  */
+    function _buildStructureDropdown(level) {
       const sel    = selected[level];
       const allSel = sel.size === 0;
       const lbl    = allSel ? 'Any state' : `${sel.size} selected`;
@@ -145,7 +136,6 @@ const Filters = (() => {
         }
       }
 
-      /* onclick on wrapper stops propagation → dropdown stays open on checkbox click */
       return `
         <div class="tdw" id="${wrId}" onclick="event.stopPropagation()">
           <button class="trig" id="${trigId}"
@@ -161,7 +151,6 @@ const Filters = (() => {
 
     /* ── Render structure filter section ────────────────────── */
     function renderStructureFilters(singleWrap, multiWrap, moOn, orderValues) {
-      /* orderValues = { high, mid, low } — current pivot orders for badge display */
       if (!singleWrap || !multiWrap) return;
       singleWrap.innerHTML = '';
       multiWrap.innerHTML  = '';
@@ -232,7 +221,6 @@ const Filters = (() => {
       });
     }
 
-    /* Expose selected + helpers for external save/restore */
     return {
       ns,
       selected,
@@ -241,7 +229,6 @@ const Filters = (() => {
       getStructureParam,
       getSelTrends,
       installDocClickHandler,
-      /* called by Filters._sfToggle/_sfAllToggle/_sfChange via global dispatch */
       _toggle(level, wrapperId) {
         const dd  = document.getElementById(`${ns}-sfdd-${level}`);
         const trg = document.getElementById(`${ns}-sftrig-${level}`);
@@ -279,7 +266,6 @@ const Filters = (() => {
   }
 
   /* ── Global dispatch — called from inline onclick HTML attrs ── */
-  /* HTML uses:  Filters._sfToggle(event, 'sc', 'low', 'sc-sfwrap-low')  */
   const _instances = {};
 
   function _register(instance) {

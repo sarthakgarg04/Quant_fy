@@ -39,10 +39,33 @@ def compute_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
 # Vectorised pivot detection
 # ─────────────────────────────────────────────────────────────────────────────
 
+# def _local_extremes_vectorised(
+#     highs: np.ndarray,
+#     lows: np.ndarray,
+#     order: int,
+# ) -> PivotList:
+#     n   = len(highs)
+#     win = 2 * order + 1
+
+#     roll_max = pd.Series(highs).rolling(win, center=True, min_periods=win).max().values
+#     roll_min = pd.Series(lows).rolling(win,  center=True, min_periods=win).min().values
+
+#     raw: PivotList = []
+#     for i in range(order, n - order):
+#         is_top    = highs[i] == roll_max[i]
+#         is_bottom = lows[i]  == roll_min[i]
+#         if is_top and not is_bottom:
+#             raw.append((i, float(highs[i]), "T"))
+#         elif is_bottom and not is_top:
+#             raw.append((i, float(lows[i]),  "B"))
+#     return raw
+
 def _local_extremes_vectorised(
     highs: np.ndarray,
     lows: np.ndarray,
     order: int,
+    opens: np.ndarray,
+    closes: np.ndarray,
 ) -> PivotList:
     n   = len(highs)
     win = 2 * order + 1
@@ -54,10 +77,26 @@ def _local_extremes_vectorised(
     for i in range(order, n - order):
         is_top    = highs[i] == roll_max[i]
         is_bottom = lows[i]  == roll_min[i]
-        if is_top and not is_bottom:
+
+        if is_top and is_bottom:
+            body      = abs(closes[i] - opens[i])
+            candle_range = highs[i] - lows[i]
+
+            # Doji: body is less than 10% of total candle range — skip
+            if candle_range > 0 and (body / candle_range) < 0.1:
+                continue
+
+            is_green = closes[i] > opens[i]
+            if is_green:
+                raw.append((i, float(highs[i]), "T"))
+            else:
+                raw.append((i, float(lows[i]), "B"))
+
+        elif is_top:
             raw.append((i, float(highs[i]), "T"))
-        elif is_bottom and not is_top:
-            raw.append((i, float(lows[i]),  "B"))
+        elif is_bottom:
+            raw.append((i, float(lows[i]), "B"))
+
     return raw
 
 
@@ -222,12 +261,14 @@ def extrems(
     """
     highs = df["High"].values
     lows  = df["Low"].values
+    opens  = df["Open"].values    
+    closes = df["Close"].values   
 
     if min_strength_atr_mult > 0:
         atr          = compute_atr(df, atr_period)
         min_strength = float(atr.median()) * min_strength_atr_mult
 
-    raw     = _local_extremes_vectorised(highs, lows, order)
+    raw     = _local_extremes_vectorised(highs, lows, order, opens, closes)
     cleaned = _enforce_alternation(raw, min_strength)
 
     # Append unconfirmed tail pivots with proper alternation

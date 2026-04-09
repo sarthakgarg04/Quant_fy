@@ -44,13 +44,26 @@ const Scanner = (() => {
 
   /* ── Structure state helpers ─────────────────────────────── */
   const STRUCT_BULL = new Set([
-    'trending_up','breakout','coiling_to_up','expanding_to_up',
-    'bottoming','bottom_breaking','structure_up',
+    'trending_up',
+    'top_coil',
+    'top_expanding',
+    'bottom_expanding_breakout',
+    'bottom_pullback_breakout',
+    'coiling_to_up',
+    'expanding_to_up',
+    'structure_up',
   ]);
   const STRUCT_BEAR = new Set([
-    'trending_down','breakdown','coiling_to_down','expanding_to_down',
-    'topping','top_breaking','structure_down',
+    'trending_down',
+    'top_expanding_breakdown',
+    'top_pullback_breakdown',
+    'bottom_coil',
+    'bottom_expanding',
+    'coiling_to_down',
+    'expanding_to_down',
+    'structure_down',
   ]);
+
   function structColor(s) {
     if (!s || s === 'none' || s === 'no_structure') return 'var(--muted)';
     if (STRUCT_BULL.has(s)) return '#22c55e';
@@ -483,7 +496,6 @@ const Scanner = (() => {
                </span>`
           }
         </div>
-        <button class="ibtn" onclick="Scanner.openDrawer(event,${i})" title="Details">ⓘ</button>
       </div>`;
     }).join('');
   }
@@ -629,6 +641,7 @@ const Scanner = (() => {
     console.log("selStock called", i);
     console.log("ROW DATA:", rows[i]);
     console.log("Loading chart for:", rows[i].ticker);
+    
     const row = rows[i];
     if (!row) {
       API.logEvent('warn', 'scanner', 'selStock: invalid index', { i, rowsLen: rows.length });
@@ -660,6 +673,7 @@ const Scanner = (() => {
 
     _markActive(i);
     currentRow = { ...row, _tf: chartTF };
+    _populateInfoDrawer(currentRow);
 
     // Header
     // $('cptk').textContent = row.ticker.replace('.NS', '');
@@ -718,6 +732,7 @@ const Scanner = (() => {
     try { sessionStorage.setItem(SS_ROWS_KEY, JSON.stringify({ rows, activeIdx })); } catch (_) {}
 
     await _loadChartForRow(row, getDir(), row.zone_legin_ts);
+    _populateInfoDrawer(row);
   }
 
   function setChartTF(tf, btn) {
@@ -808,7 +823,9 @@ const Scanner = (() => {
   function openDrawer(e, i) {
     e.stopPropagation();
     const r = rows[i]; if (!r) return;
-    $('dwtk').textContent = r.ticker.replace('.NS','');
+  
+    /* Existing modal population — unchanged */
+    $('dwtk').textContent = r.ticker.replace('.NS','').replace('.BO','');
     $('dwsb').textContent = `${QS.trendLabel(r.trend)} · ${r.pivot_count} pivots · ATR ${r.atr_pct}%`;
     $('dwpr').textContent = QS.inr(r.close);
     $('dwtr').textContent = QS.trendLabel(r.trend);
@@ -816,10 +833,109 @@ const Scanner = (() => {
     $('dws').innerHTML    = _buildDrawerHTML(r);
     $('dw').classList.add('open');
     $('dov').classList.add('show');
+  
+    /* Also populate the hover drawer with the same content */
+    _populateInfoDrawer(r);
   }
+ 
   function closeDrawer() {
     $('dw').classList.remove('open');
     $('dov').classList.remove('show');
+  }
+  
+  
+  /* ── STEP 3: Helper to populate InfoDrawer for zone scanner ─ */
+  
+  function _populateInfoDrawer(r) {
+    if (!r) return;
+  
+    const ticker   = (r.ticker || '').replace('.NS','').replace('.BO','').replace('_PERP','');
+    const subtitle = `ATR ${r.atr_pct ?? '—'}%`;
+  
+    /* Trend pill */
+    const trendHtml = InfoDrawer.trendPill(r.trend);
+  
+    /* Zone info */
+    const zoneHtml = (r.zone_type && r.zone_type !== 'none') ? InfoDrawer.section('Zone',
+      InfoDrawer.statGrid([
+        ['Type',     (r.zone_type||'—').toUpperCase()],
+        ['Status',   r.zone_status  || '—'],
+        ['Bars ago', r.bars_ago != null ? r.bars_ago + 'b' : '—'],
+        ['Zones',    r.zones_count  ?? '—'],
+        ['High',     r.zone_high != null ? QS.inr(r.zone_high) : '—'],
+        ['Low',      r.zone_low  != null ? QS.inr(r.zone_low)  : '—'],
+      ])
+    ) : '';
+  
+    /* Structure */
+    const moOn   = document.getElementById('moen')?.checked;
+    const hState = r.struct_high || 'no_structure';
+    const mState = r.struct_mid  || 'no_structure';
+    const lState = r.struct_low  || 'no_structure';
+  
+    const stColor = s => {
+      if (STRUCT_BULL.has(s)) return '#22c55e';
+      if (STRUCT_BEAR.has(s)) return '#ef4444';
+      return '#f59e0b';
+    };
+  
+    const structBody = moOn
+      ? [['H', hState, r.mo_order_high], ['M', mState, r.mo_order_mid], ['L', lState, r.mo_order_low]]
+          .map(([lv, st, ord]) => InfoDrawer.moBar(lv, st, ord, stColor(st))).join('')
+      : `<div style="font-size:11px;font-family:var(--mono);color:${stColor(lState)}">${(lState||'').replace(/_/g,' ')}</div>`;
+  
+    const structHtml = InfoDrawer.section('Structure', structBody);
+  
+    /* Momentum */
+    const vp = (r.vel_current || 0) >= 0;
+    const ac = r.vel_label === 'accelerating' ? '↑ Accel'
+            : r.vel_label === 'decelerating' ? '↓ Decel' : '→ Steady';
+  
+    const momentumHtml = InfoDrawer.section('Momentum',
+      InfoDrawer.statGrid([
+        ['Vel Δ',    `<span class="${vp?'pos':'neg'}">${vp?'+':''}${r.vel_current??'—'}</span>`],
+        ['Accel',    ac],
+        ['LR Ratio', `<span class="${(r.lr_ratio||1)>=1?'pos':'neg'}">${r.lr_ratio||'—'}×</span>`],
+        ['Amp Avg',  r.amp_avg  || '—'],
+        ['Pivots',   r.pivot_count ?? '—'],
+        ['ATR %',    (r.atr_pct ?? '—') + '%'],
+      ])
+    );
+  
+    /* Debug pivots */
+    let debugHtml = '';
+    if (moOn && (r.debug_pivots_H || r.debug_pivots_M || r.debug_pivots_L)) {
+      const pvtTable = (pivots, label, col) => {
+        if (!pivots?.length) return '';
+        return `<div style="margin-bottom:8px">
+          <div style="font-size:9px;font-weight:700;font-family:var(--mono);
+                      color:${col};margin-bottom:4px">
+            ${label} <span style="color:var(--muted2);font-weight:400">(${pivots.length})</span>
+          </div>
+          <table style="width:100%;border-collapse:collapse;font-size:10px;
+                        font-family:var(--mono);line-height:1.7">
+            ${pivots.map(p => `
+              <tr style="border-bottom:1px solid var(--s3)">
+                <td style="color:var(--muted2)">${p.d}</td>
+                <td style="text-align:right">${Number(p.v).toLocaleString('en-IN',{maximumFractionDigits:2})}</td>
+                <td style="text-align:center;font-weight:700;
+                    color:${p.t==='T'?'#ef4444':'#22c55e'}">${p.t}</td>
+              </tr>`).join('')}
+          </table>
+        </div>`;
+      };
+      debugHtml = InfoDrawer.section('Debug Pivots',
+        pvtTable(r.debug_pivots_H, `HIGH ord=${r.mo_order_high||'?'}`, '#7c3aed') +
+        pvtTable(r.debug_pivots_M, `MID  ord=${r.mo_order_mid||'?'}`,  '#1d4ed8') +
+        pvtTable(r.debug_pivots_L, `LOW  ord=${r.mo_order_low||'?'}`,  '#15803d')
+      );
+    }
+  
+    InfoDrawer.populate(
+      ticker,
+      subtitle,
+      trendHtml + zoneHtml + structHtml + momentumHtml + debugHtml
+    );
   }
 
   function _buildDrawerHTML(r) {
@@ -1111,6 +1227,7 @@ const Scanner = (() => {
   ════════════════════════════════════════════════════════════ */
   async function init() {
     QS.renderNav('scanner', 'nst', 'nbadge');
+    InfoDrawer.attach(document.getElementById('cp'));
 
     await Filters.loadStateGroups();   // ← replaces _loadStateGroups()
     _renderStructureFilters();

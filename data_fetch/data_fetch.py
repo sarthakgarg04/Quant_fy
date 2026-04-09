@@ -58,10 +58,10 @@ UPSTOX_INTERVAL_MAP: Dict[str, Tuple[str, str]] = {
 
 DAYS_LOOKBACK: Dict[str, int] = {
     "1m": 7,    # ← new — Upstox only provides ~2 days of 1m data
-    "5m": 7,
-    "15m": 10,
-    "1h": 30,
-    "4h": 90,
+    "5m": 30,
+    "15m": 31,
+    "1h": 31,
+    "4h": 31,
     "1d": 1200,
     "1wk": 2000,
 }
@@ -69,10 +69,10 @@ DAYS_LOOKBACK: Dict[str, int] = {
 UPSTOX_MAX_DAYS_PER_CALL: Dict[str, int] = {
     "1m":  15,    
     "5m":  30,   # 30 days, within 31-day limit
-    "15m": 30,   # 1 month max
-    "1h":  90,
-    "4h":  90,
-    "1d":  700,
+    "15m": 31,   # 1 month max
+    "1h":  31,
+    "4h":  31,
+    "1d":  1000,
     "1wk": 2000,
 }
 

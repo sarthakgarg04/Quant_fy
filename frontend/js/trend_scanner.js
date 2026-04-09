@@ -29,12 +29,24 @@ const TrendScanner = (() => {
 
   /* ── Structure state display helpers ─────────────────────── */
   const BULL_STATES = new Set([
-    'trending_up','breakout','coiling_to_up','expanding_to_up',
-    'bottoming','bottom_breaking','structure_up',
+    'trending_up',
+    'top_coil',
+    'top_expanding',
+    'bottom_expanding_breakout',
+    'bottom_pullback_breakout',
+    'coiling_to_up',
+    'expanding_to_up',
+    'structure_up',
   ]);
   const BEAR_STATES = new Set([
-    'trending_down','breakdown','coiling_to_down','expanding_to_down',
-    'topping','top_breaking','structure_down',
+    'trending_down',
+    'top_expanding_breakdown',
+    'top_pullback_breakdown',
+    'bottom_coil',
+    'bottom_expanding',
+    'coiling_to_down',
+    'expanding_to_down',
+    'structure_down',
   ]);
 
   function _stateColor(s) {
@@ -364,19 +376,19 @@ const TrendScanner = (() => {
           : '';
 
       return `<div class="tsr${activeIdx === i ? ' on' : ''}" data-i="${i}"
-               onclick="TrendScanner.selStock(${i})">
+              onclick="TrendScanner.selStock(${i})">
         <div class="tsr-top">
-          <span class="tsr-ticker">${ticker}</span>
-          <span class="tsr-price">${price}</span>
-        </div>
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px">
-          <div class="tsr-badges">
+          <div style="display:flex;align-items:center;gap:5px;min-width:0;flex:1;overflow:hidden">
+            <span class="tsr-ticker">${ticker}</span>
             ${trendBadge}
-            ${r.atr_pct != null
-              ? `<span style="font-size:9px;color:var(--muted);font-family:var(--mono)">ATR ${r.atr_pct}%</span>`
-              : ''}
           </div>
-          <div class="tsr-badges" style="align-items:flex-end">${structBadges}</div>
+          <span class="tsr-price" style="flex-shrink:0;padding-left:6px">${price}</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:3px;margin-top:4px">
+          ${structBadges}
+          ${r.atr_pct != null
+            ? `<span style="font-size:9px;color:var(--muted);font-family:var(--mono)">ATR ${r.atr_pct}%</span>`
+            : ''}
         </div>
       </div>`;
     }).join('');
@@ -472,78 +484,127 @@ const TrendScanner = (() => {
      ANALYSIS PANEL (right-side stats column)
   ════════════════════════════════════════════════════════════ */
   async function _loadAnalysis(row) {
-    $('ts-stats-empty').style.display   = 'none';
-    $('ts-stats-content').style.display = 'flex';
-    // Update drawer header ticker
-    const drawerTicker = $('ts-drawer-ticker');
-    if (drawerTicker) drawerTicker.textContent = assetClass === 'crypto'
-      ? row.ticker.replace('_PERP','')
-      : row.ticker.replace('.NS','').replace('.BO','');
-
-    // Trend display pill
-    const tdisp = $('ts-tdisp');
-    tdisp.textContent = QS.trendLabel(row.trend);
-    tdisp.className   = 'trend-display ' +
-      (QS.UP.has(row.trend) ? 'tup' : QS.DN.has(row.trend) ? 'tdn' : 'tco');
-
-    // Key stats grid
-    $('ts-stat-grid').innerHTML = [
-      ['ATR %',    row.atr_pct + '%'],
-      ['Strength', row.trend_strength || '—'],
-      ['Pivots',   row.pivot_count ?? '—'],
-      ['Vel Δ',    `<span class="${(row.vel_current||0) >= 0 ? 'pos' : 'neg'}">${(row.vel_current||0) >= 0 ? '+' : ''}${row.vel_current ?? '—'}</span>`],
-      ['LR Ratio', `<span class="${(row.lr_ratio||1) >= 1 ? 'pos' : 'neg'}">${row.lr_ratio || '—'}×</span>`],
-      ['Amp Avg',  row.amp_avg || '—'],
-    ].map(([l, v]) =>
-      `<div class="ts-stat"><div class="ts-stat-l">${l}</div><div class="ts-stat-v">${v}</div></div>`
-    ).join('');
-
-    // Multi-order structure bars
-    const hasMO = row.struct_low || row.struct_mid || row.struct_high;
-    if (hasMO) {
-      $('ts-mo-section').style.display = 'block';
-      $('ts-mo-align').textContent     = row.struct_alignment ? `· ${row.struct_alignment}` : '';
-      $('ts-mo-bars').innerHTML        = [
-        ['HIGH', row.struct_high, row.mo_order_high],
+    const ticker   = (row.ticker || '').replace('_PERP','').replace('.NS','').replace('.BO','');
+    const subtitle = `ATR ${row.atr_pct ?? '—'}%`;
+  
+    /* Trend pill */
+    const trendHtml = InfoDrawer.trendPill(row.trend);
+  
+    /* Key stats */
+    const vp = (row.vel_current || 0) >= 0;
+    const statsHtml = InfoDrawer.section('Stats',
+      InfoDrawer.statGrid([
+        ['ATR %',    (row.atr_pct ?? '—') + '%'],
+        ['Strength', row.trend_strength || '—'],
+        ['Pivots',   row.pivot_count    ?? '—'],
+        ['Vel Δ',    `<span class="${vp?'pos':'neg'}">${vp?'+':''}${row.vel_current??'—'}</span>`],
+        ['LR Ratio', `<span class="${(row.lr_ratio||1)>=1?'pos':'neg'}">${row.lr_ratio||'—'}×</span>`],
+        ['Amp Avg',  row.amp_avg || '—'],
+      ])
+    );
+  
+    /* Multi-order */
+    let moHtml = '';
+    if (row.struct_low || row.struct_mid || row.struct_high) {
+      const alignTxt = row.struct_alignment ? `· ${row.struct_alignment}` : '';
+      const stColor  = s => {
+        if (BULL_STATES.has(s)) return '#22c55e';
+        if (BEAR_STATES.has(s)) return '#ef4444';
+        return '#f59e0b';
+      };
+      moHtml = InfoDrawer.section(
+        `Multi-Order <span style="font-size:9px;color:var(--amber);font-weight:400;
+        text-transform:none;letter-spacing:0;margin-left:4px">${alignTxt}</span>`,
+        [['HIGH', row.struct_high, row.mo_order_high],
         ['MID',  row.struct_mid,  row.mo_order_mid],
-        ['LOW',  row.struct_low,  row.mo_order_low],
-      ].map(([lv, state, ord]) => {
-        if (!state) return '';
-        const col = _stateColor(state);
-        const pct = BULL_STATES.has(state) ? 70 : BEAR_STATES.has(state) ? 30 : 50;
-        return `<div class="ts-mo-bar">
-          <div class="ts-mo-hdr">
-            <span class="ts-mo-lbl" style="color:${col}">${lv}(${ord || '—'})</span>
-            <span class="ts-mo-trend">${_stateLabel(state)}</span>
-          </div>
-          <div class="ts-conf-track">
-            <div class="ts-conf-fill" style="width:${pct}%;background:${col}"></div>
-          </div>
-        </div>`;
-      }).join('');
-    } else {
-      $('ts-mo-section').style.display = 'none';
+        ['LOW',  row.struct_low,  row.mo_order_low]]
+          .map(([lv, st, ord]) => st ? InfoDrawer.moBar(lv, st, ord, stColor(st)) : '')
+          .join('')
+      );
     }
-
-    // Structure metrics grid
-    $('ts-struct-grid').innerHTML = [
-      ['Vel Accel', row.vel_label   || '—'],
-      ['Vel Avg',   row.vel_avg     ?? '—'],
-      ['Amp Regime',row.amp_regime  || '—'],
-      ['Amp Var',   row.amp_variance != null ? row.amp_variance + '%' : '—'],
-      ['LR Recent', row.lr_recent   != null ? row.lr_recent + '×' : '—'],
-      ['LR Bull',   row.lr_bull     != null ? row.lr_bull  + '×' : '—'],
-    ].map(([l, v]) =>
-      `<div class="ts-stat"><div class="ts-stat-l">${l}</div><div class="ts-stat-v">${v}</div></div>`
-    ).join('');
-
-    // Fetch confluence + edge from /api/trend
+  
+    /* Structure metrics */
+    const structHtml = InfoDrawer.section('Structure',
+      InfoDrawer.statGrid([
+        ['Vel Accel', row.vel_label    || '—'],
+        ['Vel Avg',   row.vel_avg      ?? '—'],
+        ['Amp Regime',row.amp_regime   || '—'],
+        ['Amp Var',   row.amp_variance != null ? row.amp_variance + '%' : '—'],
+        ['LR Recent', row.lr_recent    != null ? row.lr_recent + '×' : '—'],
+        ['LR Bull',   row.lr_bull      != null ? row.lr_bull   + '×' : '—'],
+      ])
+    );
+  
+    /* Confluence placeholder — filled async below */
+    const confHtml = InfoDrawer.section('Confluence',
+      `<div id="qs-idr-cbars">
+        ${InfoDrawer.confBar('Trend', 0, '#3b82f6')}
+        ${InfoDrawer.confBar('Zone',  0, '#22c55e')}
+        ${InfoDrawer.confBar('HTF',   0, '#a78bfa')}
+        ${InfoDrawer.confBar('Vol',   0, '#f59e0b')}
+      </div>`
+    );
+  
+    /* Edge table placeholder */
+    const edgeHtml = InfoDrawer.section('Edge',
+      `<table style="width:100%;border-collapse:collapse;font-size:10px;font-family:var(--mono)">
+        <thead><tr style="border-bottom:1px solid var(--border)">
+          <th style="color:var(--muted2);font-weight:400;padding-bottom:3px">Type</th>
+          <th style="color:var(--muted2);font-weight:400">Bars</th>
+          <th style="color:var(--muted2);font-weight:400">N</th>
+          <th style="color:var(--muted2);font-weight:400">Hit%</th>
+          <th style="color:var(--muted2);font-weight:400">Avg R</th>
+          <th style="color:var(--muted2);font-weight:400">PO</th>
+        </tr></thead>
+        <tbody id="qs-idr-etb">
+          <tr><td colspan="6" style="color:var(--muted);text-align:center;padding:6px">Loading…</td></tr>
+        </tbody>
+      </table>`
+    );
+  
+    /* Debug pivots */
+    let debugHtml = '';
+    const wasMO = row.scan_params?.multi_order;
+    if (wasMO && (row.debug_pivots_H || row.debug_pivots_M || row.debug_pivots_L)) {
+      const pvtTable = (pivots, label, col) => {
+        if (!pivots?.length) return '';
+        return `<div style="margin-bottom:8px">
+          <div style="font-size:9px;font-weight:700;font-family:var(--mono);
+                      color:${col};margin-bottom:4px">
+            ${label} <span style="color:var(--muted2);font-weight:400">(${pivots.length})</span>
+          </div>
+          <table style="width:100%;border-collapse:collapse;font-size:10px;
+                        font-family:var(--mono);line-height:1.7">
+            ${pivots.map(p => `
+              <tr style="border-bottom:1px solid var(--s3)">
+                <td style="color:var(--muted2)">${p.d}</td>
+                <td style="text-align:right">${Number(p.v).toLocaleString('en-IN',{maximumFractionDigits:2})}</td>
+                <td style="text-align:center;font-weight:700;
+                    color:${p.t==='T'?'#ef4444':'#22c55e'}">${p.t}</td>
+              </tr>`).join('')}
+          </table>
+        </div>`;
+      };
+      debugHtml = InfoDrawer.section('Debug Pivots',
+        pvtTable(row.debug_pivots_H, `HIGH ord=${row.mo_order_high||'?'}`, '#7c3aed') +
+        pvtTable(row.debug_pivots_M, `MID  ord=${row.mo_order_mid||'?'}`,  '#1d4ed8') +
+        pvtTable(row.debug_pivots_L, `LOW  ord=${row.mo_order_low||'?'}`,  '#15803d')
+      );
+    }
+  
+    /* Populate drawer immediately with sync content */
+    InfoDrawer.populate(
+      ticker, subtitle,
+      trendHtml + statsHtml + moHtml + structHtml + confHtml + edgeHtml + debugHtml
+    );
+  
+    /* Async: fill confluence + edge after populate */
     try {
-      const ticker = assetClass === 'crypto'
-        ? row.ticker.replace('_PERP', '').replace('USDT', '') + 'USDT'
+      const apiTicker = assetClass === 'crypto'
+        ? row.ticker.replace('_PERP','').replace('USDT','') + 'USDT'
         : row.ticker;
       const mo = $('ts-moen').checked;
-      const d  = await API.trendData(ticker, {
+      const d  = await API.trendData(apiTicker, {
         interval:    getScanTF(),
         order:       mo ? $('ts-mol').value : $('ts-order').value,
         multi_order: mo,
@@ -551,97 +612,35 @@ const TrendScanner = (() => {
         order_mid:   $('ts-mom').value,
         order_high:  $('ts-moh').value,
       });
-
+  
       const c = d.confluence || {};
-      $('ts-cbars').innerHTML = [
-        ['Trend', c.trend_score || 0, '#3b82f6'],
-        ['Zone',  c.zone_score  || 0, '#22c55e'],
-        ['HTF',   c.htf_score   || 0, '#a78bfa'],
-        ['Vol',   c.vol_score   || 0, '#f59e0b'],
-      ].map(([l, v, col]) =>
-        `<div>
-          <div class="ts-conf-row"><span>${l}</span><span>${Math.round(v * 100)}%</span></div>
-          <div class="ts-conf-track">
-            <div class="ts-conf-fill" style="width:${Math.round(v * 100)}%;background:${col}"></div>
-          </div>
-        </div>`
-      ).join('');
-
-      $('ts-etb').innerHTML = d.edge?.length
-        ? d.edge.map(r =>
-            `<tr>
-              <td style="color:${r.type === 'B' ? 'var(--green)' : 'var(--red)'}">${r.type === 'B' ? 'Bull' : 'Bear'}</td>
-              <td>${r.horizon}b</td>
-              <td>${r.n}</td>
-              <td class="${r.hit_rate > 0.5 ? 'pos' : 'neg'}">${r.hit_rate != null ? (r.hit_rate * 100).toFixed(0) + '%' : '–'}</td>
-              <td class="${r.avg_R > 0 ? 'pos' : 'neg'}">${r.avg_R != null ? r.avg_R.toFixed(2) + '%' : '–'}</td>
-              <td>${r.payoff != null ? r.payoff.toFixed(2) : '–'}</td>
-            </tr>`).join('')
-        : `<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:8px">Not enough history</td></tr>`;
-
+      const cbarsEl = document.getElementById('qs-idr-cbars');
+      if (cbarsEl) {
+        cbarsEl.innerHTML =
+          InfoDrawer.confBar('Trend', c.trend_score || 0, '#3b82f6') +
+          InfoDrawer.confBar('Zone',  c.zone_score  || 0, '#22c55e') +
+          InfoDrawer.confBar('HTF',   c.htf_score   || 0, '#a78bfa') +
+          InfoDrawer.confBar('Vol',   c.vol_score   || 0, '#f59e0b');
+      }
+  
+      const etbEl = document.getElementById('qs-idr-etb');
+      if (etbEl) {
+        etbEl.innerHTML = d.edge?.length
+          ? d.edge.map(r => `
+              <tr style="border-bottom:1px solid var(--s3)">
+                <td style="color:${r.type==='B'?'var(--green)':'var(--red)'}">${r.type==='B'?'Bull':'Bear'}</td>
+                <td>${r.horizon}b</td><td>${r.n}</td>
+                <td class="${r.hit_rate>0.5?'pos':'neg'}">${r.hit_rate!=null?(r.hit_rate*100).toFixed(0)+'%':'–'}</td>
+                <td class="${r.avg_R>0?'pos':'neg'}">${r.avg_R!=null?r.avg_R.toFixed(2)+'%':'–'}</td>
+                <td>${r.payoff!=null?r.payoff.toFixed(2):'–'}</td>
+              </tr>`).join('')
+          : `<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:8px">
+              Not enough history</td></tr>`;
+      }
     } catch (_) {
-      $('ts-cbars').innerHTML = `<div style="font-size:10px;color:var(--muted)">Confluence unavailable</div>`;
-    }
-
-    /* ── DEBUG PIVOTS ──────────────────────────────────────────────────────
-       Renders the exact pivot list computed at scan-time.
-       Silently skipped if fields absent (old sessionStorage result).
-    ──────────────────────────────────────────────────────────────────────── */
-    const _dbgEl = $('ts-debug-pivots');
-    if (!_dbgEl) return;
-
-    function _tsPvtTable(pivots, label, dotColor) {
-      if (!pivots || !pivots.length) return '';
-      return `
-        <div style="margin-bottom:10px">
-          <div style="font-size:9px;font-weight:700;font-family:var(--mono);
-                      color:${dotColor};margin-bottom:5px;letter-spacing:.3px">
-            ${label}
-            <span style="color:var(--muted2);font-weight:400">(${pivots.length} shown)</span>
-          </div>
-          <table style="width:100%;border-collapse:collapse;font-size:10px;
-                        font-family:var(--mono);line-height:1.7">
-            <thead>
-              <tr style="border-bottom:1px solid var(--border)">
-                <th style="color:var(--muted2);font-weight:400;text-align:left;padding-bottom:3px">Date</th>
-                <th style="color:var(--muted2);font-weight:400;text-align:right">Value</th>
-                <th style="color:var(--muted2);font-weight:400;text-align:center;width:28px">T/B</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${pivots.map(p => `
-                <tr style="border-bottom:1px solid var(--s3)">
-                  <td style="color:var(--muted2);padding:1px 0">${p.d}</td>
-                  <td style="color:var(--text);text-align:right">${Number(p.v).toLocaleString('en-IN', {maximumFractionDigits:2})}</td>
-                  <td style="text-align:center;font-weight:700;
-                             color:${p.t === 'T' ? '#ef4444' : '#22c55e'}">${p.t}</td>
-                </tr>`).join('')}
-            </tbody>
-          </table>
-        </div>`;
-    }
-
-    const _wasMO = row.scan_params?.multi_order;
-    if (_wasMO && (row.debug_pivots_H || row.debug_pivots_M || row.debug_pivots_L)) {
-      _dbgEl.innerHTML = `
-        <div class="ts-sec-lbl" style="margin-bottom:8px">🔬 Debug Pivots
-          <span style="font-weight:400;text-transform:none;letter-spacing:0;
-                       color:var(--muted2);font-size:9px;margin-left:4px">scan-time · last 30 each</span>
-        </div>
-        ${_tsPvtTable(row.debug_pivots_H, `HIGH  ord=${row.mo_order_high || '?'}`, '#7c3aed')}
-        ${_tsPvtTable(row.debug_pivots_M, `MID   ord=${row.mo_order_mid  || '?'}`, '#1d4ed8')}
-        ${_tsPvtTable(row.debug_pivots_L, `LOW   ord=${row.mo_order_low  || '?'}`, '#3b82f6')}`;
-      _dbgEl.style.display = 'block';
-    } else if (!_wasMO && row.debug_pivots?.length) {
-      _dbgEl.innerHTML = `
-        <div class="ts-sec-lbl" style="margin-bottom:8px">🔬 Debug Pivots
-          <span style="font-weight:400;text-transform:none;letter-spacing:0;
-                       color:var(--muted2);font-size:9px;margin-left:4px">scan-time · last ${row.debug_pivots.length}</span>
-        </div>
-        ${_tsPvtTable(row.debug_pivots, `Order ${row.scan_params?.order || '?'}`, '#3b82f6')}`;
-      _dbgEl.style.display = 'block';
-    } else {
-      _dbgEl.style.display = 'none';
+      const cbarsEl = document.getElementById('qs-idr-cbars');
+      if (cbarsEl) cbarsEl.innerHTML =
+        `<div style="font-size:10px;color:var(--muted)">Confluence unavailable</div>`;
     }
   }
 
@@ -722,6 +721,7 @@ const TrendScanner = (() => {
   async function init() {
     QS.renderNav('trend', 'ts-nav-status');
     Chart.init('ts-cw');
+    InfoDrawer.attach(document.querySelector('.ts-chart-col'));
 
     // Trend dropdown — close on outside click
     document.addEventListener('click', e => {
