@@ -235,7 +235,8 @@ def _run_fetch_task(
                 return
  
             ok_n = err_n = 0
-            for done, total, sym, ok in fetch_upstox_batch_iter(keys, tf, token):
+            for done, total, sym, ok, err_msg in fetch_upstox_batch_iter(keys, tf, token):
+                # Check for cancellation
                 if _fetch_tasks[task_id].get("status") == "cancelled":
                     task_log("Cancelled by user.", "inf")
                     return
@@ -244,7 +245,7 @@ def _run_fetch_task(
                     task_log(f"✓ {sym}", "ok")
                 else:
                     err_n += 1
-                    task_log(f"✗ {sym}", "err")
+                    task_log(f"✗ {sym}" + (f" — {err_msg}" if err_msg else ""), "err")
                 upd(done=done, total=total, ok_count=ok_n, err_count=err_n)
  
         # ── YFINANCE ──────────────────────────────────────────────────────────
@@ -1289,7 +1290,8 @@ def _crypto_chart_inner(base_clean, df, interval, order, legout_mult,
 # ─────────────────────────────────────────────────────────────────────────────
 # [5] /api/crypto/intervals — tells frontend which intervals are available
 # ─────────────────────────────────────────────────────────────────────────────
- 
+
+
 @app.route("/api/crypto/intervals")
 def crypto_intervals():
     """
@@ -1442,6 +1444,7 @@ def debug_pivots(ticker):
 
     print(f"{'='*60}\n")
     return jsonify(report)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Entry point

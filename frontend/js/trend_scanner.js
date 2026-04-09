@@ -582,6 +582,67 @@ const TrendScanner = (() => {
     } catch (_) {
       $('ts-cbars').innerHTML = `<div style="font-size:10px;color:var(--muted)">Confluence unavailable</div>`;
     }
+
+    /* ── DEBUG PIVOTS ──────────────────────────────────────────────────────
+       Renders the exact pivot list computed at scan-time.
+       Silently skipped if fields absent (old sessionStorage result).
+    ──────────────────────────────────────────────────────────────────────── */
+    const _dbgEl = $('ts-debug-pivots');
+    if (!_dbgEl) return;
+
+    function _tsPvtTable(pivots, label, dotColor) {
+      if (!pivots || !pivots.length) return '';
+      return `
+        <div style="margin-bottom:10px">
+          <div style="font-size:9px;font-weight:700;font-family:var(--mono);
+                      color:${dotColor};margin-bottom:5px;letter-spacing:.3px">
+            ${label}
+            <span style="color:var(--muted2);font-weight:400">(${pivots.length} shown)</span>
+          </div>
+          <table style="width:100%;border-collapse:collapse;font-size:10px;
+                        font-family:var(--mono);line-height:1.7">
+            <thead>
+              <tr style="border-bottom:1px solid var(--border)">
+                <th style="color:var(--muted2);font-weight:400;text-align:left;padding-bottom:3px">Date</th>
+                <th style="color:var(--muted2);font-weight:400;text-align:right">Value</th>
+                <th style="color:var(--muted2);font-weight:400;text-align:center;width:28px">T/B</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${pivots.map(p => `
+                <tr style="border-bottom:1px solid var(--s3)">
+                  <td style="color:var(--muted2);padding:1px 0">${p.d}</td>
+                  <td style="color:var(--text);text-align:right">${Number(p.v).toLocaleString('en-IN', {maximumFractionDigits:2})}</td>
+                  <td style="text-align:center;font-weight:700;
+                             color:${p.t === 'T' ? '#ef4444' : '#22c55e'}">${p.t}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>`;
+    }
+
+    const _wasMO = row.scan_params?.multi_order;
+    if (_wasMO && (row.debug_pivots_H || row.debug_pivots_M || row.debug_pivots_L)) {
+      _dbgEl.innerHTML = `
+        <div class="ts-sec-lbl" style="margin-bottom:8px">🔬 Debug Pivots
+          <span style="font-weight:400;text-transform:none;letter-spacing:0;
+                       color:var(--muted2);font-size:9px;margin-left:4px">scan-time · last 30 each</span>
+        </div>
+        ${_tsPvtTable(row.debug_pivots_H, `HIGH  ord=${row.mo_order_high || '?'}`, '#7c3aed')}
+        ${_tsPvtTable(row.debug_pivots_M, `MID   ord=${row.mo_order_mid  || '?'}`, '#1d4ed8')}
+        ${_tsPvtTable(row.debug_pivots_L, `LOW   ord=${row.mo_order_low  || '?'}`, '#3b82f6')}`;
+      _dbgEl.style.display = 'block';
+    } else if (!_wasMO && row.debug_pivots?.length) {
+      _dbgEl.innerHTML = `
+        <div class="ts-sec-lbl" style="margin-bottom:8px">🔬 Debug Pivots
+          <span style="font-weight:400;text-transform:none;letter-spacing:0;
+                       color:var(--muted2);font-size:9px;margin-left:4px">scan-time · last ${row.debug_pivots.length}</span>
+        </div>
+        ${_tsPvtTable(row.debug_pivots, `Order ${row.scan_params?.order || '?'}`, '#3b82f6')}`;
+      _dbgEl.style.display = 'block';
+    } else {
+      _dbgEl.style.display = 'none';
+    }
   }
 
   /* ════════════════════════════════════════════════════════════

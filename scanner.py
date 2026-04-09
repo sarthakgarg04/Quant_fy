@@ -70,6 +70,37 @@ def _structure_fields(mo: Dict[str, Any]) -> Dict[str, Any]:
         "mo_order_high":     hi["order"],
     }
 
+def _serialize_pivots(df: pd.DataFrame, pvts: list, n: int = 30) -> list:
+    """
+    Serialize the last `n` scan-time pivots to JSON-safe dicts.
+    Format: {"d": "2024-11-15", "v": 1234.56, "t": "T"|"B"}
+    Used purely for frontend debug display — does not affect scan logic.
+    """
+    out = []
+    idx = df.index
+    for bar_idx, val, typ in pvts[-n:]:
+        try:
+            date_str = str(idx[bar_idx].date())
+        except Exception:
+            date_str = str(bar_idx)
+        out.append({"d": date_str, "v": round(float(val), 2), "t": typ})
+    return out
+
+
+def _debug_pivot_fields(df: pd.DataFrame, mo: dict, pvts: list,
+                        multi_order: bool) -> dict:
+    """
+    Return the debug_pivots_* fields to embed in a scan result.
+    Single-order → {"debug_pivots": [...]}
+    Multi-order  → {"debug_pivots_H": [...], "debug_pivots_M": [...], "debug_pivots_L": [...]}
+    """
+    if multi_order:
+        return {
+            "debug_pivots_H": _serialize_pivots(df, mo["high"]["pivots"]),
+            "debug_pivots_M": _serialize_pivots(df, mo["mid"]["pivots"]),
+            "debug_pivots_L": _serialize_pivots(df, mo["low"]["pivots"]),
+        }
+    return {"debug_pivots": _serialize_pivots(df, pvts)}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Trend-only result
@@ -132,6 +163,7 @@ def _trend_only_result(
         "interval":      interval,
     }
 
+    result.update(_debug_pivot_fields(df, mo, pvts, multi_order))
     return result
 
 
@@ -297,6 +329,7 @@ def analyse_symbol(
             "interval":      interval,   # ← df doesn't carry interval; see note below
         }
 
+        result.update(_debug_pivot_fields(df, mo, pvts, multi_order))
         return result
 
     except Exception as e:

@@ -917,7 +917,7 @@ const Scanner = (() => {
       </div>
     </div>`;
 
-    return `${structHtml}${zoneHtml}
+    const mainHtml = `${structHtml}${zoneHtml}
     <div>
       <div class="dwst">Velocity</div>
       <div class="vb">
@@ -963,6 +963,69 @@ const Scanner = (() => {
         <div class="it"><div class="itl">Trend Strength</div><div class="itv" style="font-size:10px">${r.trend_strength||'—'}</div></div>
       </div>
     </div>`;
+
+    /* ── DEBUG PIVOTS ────────────────────────────────────────────────────────
+       Renders the exact pivot list used at scan-time so you can cross-check
+       against what the chart draws at runtime.
+       Single-order → r.debug_pivots  (flat list)
+       Multi-order  → r.debug_pivots_H / _M / _L  (one table per level)
+       Backend must populate these fields via _debug_pivot_fields() in scanner.py.
+       If the fields are absent (old scan result in sessionStorage) the section
+       is silently omitted — no errors, no visible change.
+    ──────────────────────────────────────────────────────────────────────── */
+    function _pvtTable(pivots, label, dotColor) {
+      if (!pivots || !pivots.length) return '';
+      return `
+        <div style="margin-bottom:10px">
+          <div style="font-size:9px;font-weight:700;font-family:var(--mono);
+                      color:${dotColor};margin-bottom:5px;letter-spacing:.3px">
+            ${label}
+            <span style="color:var(--muted2);font-weight:400">(${pivots.length} shown)</span>
+          </div>
+          <table style="width:100%;border-collapse:collapse;font-size:10px;font-family:var(--mono);line-height:1.7">
+            <thead>
+              <tr style="border-bottom:1px solid var(--border)">
+                <th style="color:var(--muted2);font-weight:400;text-align:left;padding-bottom:3px">Date</th>
+                <th style="color:var(--muted2);font-weight:400;text-align:right">Value</th>
+                <th style="color:var(--muted2);font-weight:400;text-align:center;width:28px">T/B</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${pivots.map(p => `
+                <tr style="border-bottom:1px solid var(--s3)">
+                  <td style="color:var(--muted2);padding:1px 0">${p.d}</td>
+                  <td style="color:var(--text);text-align:right">${Number(p.v).toLocaleString('en-IN', {maximumFractionDigits:2})}</td>
+                  <td style="text-align:center;font-weight:700;color:${p.t==='T'?'#ef4444':'#22c55e'}">${p.t}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>`;
+    }
+
+    let debugBlock = '';
+    if (wasMO && (r.debug_pivots_H || r.debug_pivots_M || r.debug_pivots_L)) {
+      debugBlock = `
+        <div style="margin-top:14px;padding-bottom:8px">
+          <div class="dwst">🔬 Debug Pivots
+            <span style="font-weight:400;text-transform:none;letter-spacing:0;
+                         color:var(--muted2);font-size:9px;margin-left:4px">scan-time · last 30 each</span>
+          </div>
+          ${_pvtTable(r.debug_pivots_H, `HIGH  ord=${r.mo_order_high||'?'}`, '#7c3aed')}
+          ${_pvtTable(r.debug_pivots_M, `MID   ord=${r.mo_order_mid||'?'}`,  '#1d4ed8')}
+          ${_pvtTable(r.debug_pivots_L, `LOW   ord=${r.mo_order_low||'?'}`,  '#3b82f6')}
+        </div>`;
+    } else if (!wasMO && r.debug_pivots?.length) {
+      debugBlock = `
+        <div style="margin-top:14px;padding-bottom:8px">
+          <div class="dwst">🔬 Debug Pivots
+            <span style="font-weight:400;text-transform:none;letter-spacing:0;
+                         color:var(--muted2);font-size:9px;margin-left:4px">scan-time · last ${r.debug_pivots.length}</span>
+          </div>
+          ${_pvtTable(r.debug_pivots, `Order ${r.scan_params?.order||'?'}`, '#3b82f6')}
+        </div>`;
+    }
+
+    return mainHtml + debugBlock;
   }
 
   /* ════════════════════════════════════════════════════════════
