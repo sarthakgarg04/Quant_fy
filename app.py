@@ -1,115 +1,77 @@
 """
 app.py  –  QuantScanner v3.1
 =============================
-Key change vs v3.0:
-  The /api/data/fetch/stream SSE endpoint is REPLACED by:
-    POST /api/data/fetch/start   → launches server-side thread, returns task_id
-    GET  /api/data/fetch/status  → poll for progress (survives page navigation)
-    POST /api/data/fetch/cancel  → graceful cancel
+Background fetch task flow:
+  POST /api/data/fetch/start   → launches server-side thread, returns task_id
+  GET  /api/data/fetch/status  → poll for progress (survives page navigation)
+  POST /api/data/fetch/cancel  → graceful cancel
 
-  The fetch now runs entirely on the server. Navigating away and back
-  does NOT interrupt it — the thread keeps running and the frontend
-  reconnects by polling /status with the task_id stored in localStorage.
+The fetch runs entirely on the server. Navigating away and back does NOT
+interrupt it — the thread keeps running and the frontend reconnects by
+polling /status with the task_id stored in localStorage.
+
+Changes in this revision (v3.1 → cleaned):
+  - Removed duplicate _load_keys() (was defined 3×); now imported from core.config
+  - Merged duplicate crypto_fetch import blocks into one
+  - Removed dead rename_map block inside _load_crypto_df (shadowed by module-level constant)
+  - Removed duplicate _safe() / _sr() / _candles() / _serialise_zones() helpers;
+    now imported from core.serializers
+  - Removed duplicate _parse_states() inside crypto_scan(); uses parse_states() from core.serializers
+  - Collapsed 3× repeated auth URL f-string into _auth_url() helper
+  - Removed duplicate `from algos.pivot_engine import extrems, detect_trend, compute_atr, tag_signals`
+  - Moved __main__ port-kill logic to run.py; __main__ block is now 2 lines
 """
 
 from __future__ import annotations
 import sys, os, json, time, threading, uuid
 
-from algos.trend_analysis import STATE_GROUPS, STATE_LABELS
-
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 
-from algos.pivot_engine import (
-    extrems, detect_trend, compute_atr, tag_signals,
-    compute_pivot_velocity, compute_pivot_amplitude, compute_leg_ratio,
-    UPTREND_LABELS, DOWNTREND_LABELS, _trend_matches,
-)
-from algos.trend_analysis import get_multiorder_structure 
+# ── Core config — replaces all _load_keys() calls ─────────────────────────────
+from core.config      import UPSTOX_KEY, UPSTOX_SECRET, UPSTOX_REDIRECT, PORT, ROOT
+from core.serializers import safe_dict, candles, serialise_zones, parse_states
 
-from data_fetch.crypto_fetch import (
-    fetch_crypto_batch_iter,   # yields (done, total, sym_key, ok) — same contract as Upstox iter
-    list_crypto_stored,        # → list of dicts for store browser
-    delete_crypto_stored,      # deletes raw + derived parquets
-    CRYPTO_SYMBOLS,            # default 10-symbol list
-)
-
-from data_fetch.crypto_fetch import (
-    load_crypto_ohlcv,      # load_crypto_ohlcv(base, interval) → DataFrame
-    list_crypto_stored,     # → list of {symbol, rows, ...}
-    CRYPTO_SYMBOLS,         # default 10 symbols
-    DERIVED_INTERVALS,      # {"3m","5m","15m","1h","4h"}
-    _file_key,              # "BTC" → "BTCUSDT_PERP"
-)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Shared serialisers  (module-level — used by all chart routes)
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _serialise_zones(zones: list | None) -> list:
-    """Convert ZoneDict list → JSON-safe list. Handles None input safely."""
-    out = []
-    for z in (zones or []):
-        try:
-            out.append({
-                "time_start":      int(pd.Timestamp(z["time_start"]).timestamp()),
-                "time_end":        int(pd.Timestamp(z["time_end"]).timestamp()),
-                "price_high":      z["price_high"],
-                "price_low":       z["price_low"],
-                "zone_type":       z.get("zone_type",       "rbr"),
-                "status":          z.get("status",          "fresh"),
-                "base_bars":       z.get("base_bars",        0),
-                "legout_strength": z.get("legout_strength",  0.0),
-                "vol_score":       z.get("vol_score",        0.0),
-            })
-        except Exception:
-            pass
-    return out
-
-
-def _load_keys():
-    try:
-        import keys as _k
-        k = getattr(_k, "api_key",      "").strip()
-        s = getattr(_k, "secret",       "").strip()
-        r = getattr(_k, "redirect_uri", "").strip()
-        if k:
-            print(f"  ✅ Credentials from keys.py  (key: {k[:8]}…)")
-            return k, s, r
-    except ImportError:
-        pass
-    k = os.environ.get("UPSTOX_API_KEY",    "").strip()
-    s = os.environ.get("UPSTOX_API_SECRET", "").strip()
-    r = os.environ.get("UPSTOX_REDIRECT",   "http://127.0.0.1:5050/api/data/auth/callback").strip()
-    if k:
-        print(f"  ✅ Credentials from env vars  (key: {k[:8]}…)")
-    else:
-        print("  ⚠  No API credentials — create keys.py or set UPSTOX_API_KEY.")
-    return k, s, r
-
-UPSTOX_KEY, UPSTOX_SECRET, UPSTOX_REDIRECT = _load_keys()
-
+# ── Flask ──────────────────────────────────────────────────────────────────────
 from flask import Flask, jsonify, request, send_from_directory, Response, redirect
 from flask_cors import CORS
 import pandas as pd
 import numpy as np
 
+# ── Algos ──────────────────────────────────────────────────────────────────────
+from algos.pivot_engine import (
+    extrems, detect_trend, compute_atr, tag_signals,
+    compute_pivot_velocity, compute_pivot_amplitude, compute_leg_ratio,
+    UPTREND_LABELS, DOWNTREND_LABELS, _trend_matches,
+)
+from algos.trend_analysis import get_multiorder_structure, STATE_GROUPS, STATE_LABELS
+from algos.zones          import scan_zones, buy_zone, sell_zone
+from algos.confluence     import confluence_score, measure_edge
+from algos.patterns       import detect_flag, detect_triangle, pivot_trend_strength
+from algos.context        import SymbolContext
+
+# ── Data ───────────────────────────────────────────────────────────────────────
 from data_fetch.data_fetch import (
     fetch_ohlcv, fetch_batch, get_watchlist,
     list_stored, load_stored_df,
     load_token, save_token, is_token_valid,
     delete_stored, storage_summary,
     get_eq_instruments, instrument_key_to_symbol,
-    fetch_upstox_batch_iter,_is_fresh,   
+    fetch_upstox_batch_iter, _is_fresh,
     UPSTOX_AUTH_URL, UPSTOX_TOKEN_URL,
 )
-from algos.pivot_engine import extrems, detect_trend, compute_atr, tag_signals
-from algos.zones        import scan_zones, buy_zone, sell_zone
-from algos.confluence   import confluence_score, measure_edge
-from algos.patterns     import detect_flag, detect_triangle, pivot_trend_strength
-from scanner            import scan_watchlist
-from utils.logger       import get_logger, read_log_tail, log_stats
+# Single merged import block — was duplicated with overlapping names
+from data_fetch.crypto_fetch import (
+    fetch_crypto_batch_iter,
+    load_crypto_ohlcv,
+    list_crypto_stored,
+    delete_crypto_stored,
+    CRYPTO_SYMBOLS,
+    DERIVED_INTERVALS,
+    _file_key,
+)
+from scanner      import scan_watchlist
+from utils.logger import get_logger, read_log_tail, log_stats
 
 log = get_logger(__name__)
 log.info("QuantScanner starting", version="3.1")
@@ -122,14 +84,28 @@ CORS(app)
 # BACKGROUND FETCH TASK STATE
 # Lives in the server process — completely unaffected by page navigation.
 # ─────────────────────────────────────────────────────────────────────────────
-_fetch_tasks:    dict = {}   # task_id -> task_dict
+_fetch_tasks:    dict = {}
 _fetch_lock              = threading.Lock()
 _active_task_id: str | None = None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Crypto helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Maps equity-style TF strings to crypto TF strings where they differ
+_EQUITY_TO_CRYPTO_TF = {"1wk": "1w"}
+
+# Column map: Binance stores lowercase, all algos expect Title Case
+_CRYPTO_COL_RENAME = {
+    "open": "Open", "high": "High",
+    "low":  "Low",  "close": "Close", "volume": "Volume",
+}
 
 def _crypto_base(raw: str) -> str:
     """
     Normalise any crypto ticker string to a clean base symbol.
- 
+
     Handles every format the frontend or scanner might send:
         "BTCUSDT_PERP"  → "BTC"
         "BTCUSDT"       → "BTC"
@@ -143,14 +119,6 @@ def _crypto_base(raw: str) -> str:
            .replace("_PERP",     "")
            .strip()
     )
- 
-_EQUITY_TO_CRYPTO_TF = {"1wk": "1w"}
-
-# Column map: Binance stores lowercase, all algos expect Title Case
-_CRYPTO_COL_RENAME = {
-    "open": "Open", "high": "High",
-    "low":  "Low",  "close": "Close", "volume": "Volume",
-}
 
 def _load_crypto_df(base: str, interval: str) -> "pd.DataFrame | None":
     """
@@ -158,22 +126,31 @@ def _load_crypto_df(base: str, interval: str) -> "pd.DataFrame | None":
     scan_zones, compute_atr and all other algos work without modification.
     Also normalises equity-style TF strings (1wk → 1w).
     """
-    interval = {"1wk": "1w"}.get(interval, interval)
+    interval = _EQUITY_TO_CRYPTO_TF.get(interval, interval)
     try:
         df = load_crypto_ohlcv(base, interval)
     except Exception:
         return None
     if df is None or df.empty:
         return None
+    # Dead code removed: inline rename_map that was shadowed by _CRYPTO_COL_RENAME above
     return df.rename(columns={k: v for k, v in _CRYPTO_COL_RENAME.items() if k in df.columns})
- 
-    # crypto_fetch stores lowercase — rename to Title Case for existing algos
-    rename_map = {
-        "open": "Open", "high": "High",
-        "low":  "Low",  "close": "Close", "volume": "Volume",
-    }
-    df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
-    return df
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Auth URL helper — was copy-pasted 3× across auth routes
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _auth_url() -> str:
+    return (
+        f"{UPSTOX_AUTH_URL}?response_type=code"
+        f"&client_id={UPSTOX_KEY}&redirect_uri={UPSTOX_REDIRECT}"
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Background fetch task
+# ─────────────────────────────────────────────────────────────────────────────
 
 def _run_fetch_task(
     task_id:        str,
@@ -183,37 +160,34 @@ def _run_fetch_task(
     wl:             str,
     force:          bool,
     token:          str,
-    # ── crypto-only params (ignored for upstox / yfinance) ──
     crypto_symbols: list | None = None,
     lookback_days:  int         = 730,
 ):
     """
     Daemon thread: runs the full fetch, writes progress into _fetch_tasks[task_id].
     The HTTP server keeps serving /api/data/fetch/status throughout.
- 
+
     Supports three sources:
-        "upstox"  — NSE/BSE equities via Upstox API
-        "yfinance"— equities via yfinance
-        "crypto"  — Binance USDT-M perpetual 1m OHLCV (no auth required)
+        "upstox"   — NSE/BSE equities via Upstox API
+        "yfinance" — equities via yfinance
+        "crypto"   — Binance USDT-M perpetual 1m OHLCV (no auth required)
     """
- 
-    # ── helpers: thread-safe task state writers ──
     def upd(**kw):
         with _fetch_lock:
             for k, v in kw.items():
                 _fetch_tasks[task_id][k] = v
- 
+
     def task_log(msg: str, kind: str = "inf"):
         with _fetch_lock:
             entries = _fetch_tasks[task_id]["log"]
             entries.append({"msg": msg, "kind": kind})
-            if len(entries) > 500:                  # keep last 500 log lines
+            if len(entries) > 500:
                 _fetch_tasks[task_id]["log"] = entries[-500:]
- 
+
     try:
         upd(status="running", title=f"Starting {src} fetch…")
         task_log(f"Starting {src} fetch — {tf if src != 'crypto' else '1m canonical'}", "inf")
- 
+
         # ── UPSTOX ────────────────────────────────────────────────────────────
         if src == "upstox":
             ok_tok, _ = is_token_valid(token)
@@ -221,22 +195,21 @@ def _run_fetch_task(
                 upd(status="error", title="Token expired — re-authenticate.")
                 task_log("Token expired — re-authenticate.", "err")
                 return
- 
+
             task_log("Downloading instrument master…", "inf")
             segments = tuple(e.strip() for e in universe.split(","))
             instr    = get_eq_instruments(segments)
             keys     = instr["instrument_key"].tolist()
             upd(total=len(keys))
             task_log(f"Found {len(keys)} instruments in {universe}", "inf")
- 
+
             if not keys:
                 upd(status="error", title=f"0 instruments found for {universe}")
                 task_log(f"0 instruments found for {universe}", "err")
                 return
- 
+
             ok_n = err_n = 0
             for done, total, sym, ok, err_msg in fetch_upstox_batch_iter(keys, tf, token):
-                # Check for cancellation
                 if _fetch_tasks[task_id].get("status") == "cancelled":
                     task_log("Cancelled by user.", "inf")
                     return
@@ -247,7 +220,7 @@ def _run_fetch_task(
                     err_n += 1
                     task_log(f"✗ {sym}" + (f" — {err_msg}" if err_msg else ""), "err")
                 upd(done=done, total=total, ok_count=ok_n, err_count=err_n)
- 
+
         # ── YFINANCE ──────────────────────────────────────────────────────────
         elif src == "yfinance":
             tickers = get_watchlist(wl)
@@ -272,7 +245,7 @@ def _run_fetch_task(
                     err_n += 1
                 upd(done=i, total=total, ok_count=ok_n, err_count=err_n)
                 time.sleep(0.05)
- 
+
         # ── CRYPTO (Binance USDT-M perpetuals) ────────────────────────────────
         elif src == "crypto":
             targets = crypto_symbols or CRYPTO_SYMBOLS
@@ -284,7 +257,7 @@ def _run_fetch_task(
                 "inf"
             )
             task_log("No API key required — Binance public market data.", "inf")
- 
+
             ok_n = err_n = 0
             for done, total, sym_key, ok in fetch_crypto_batch_iter(
                 symbols=targets,
@@ -300,52 +273,25 @@ def _run_fetch_task(
                     err_n += 1
                     task_log(f"✗ {sym_key}", "err")
                 upd(done=done, total=total, ok_count=ok_n, err_count=err_n)
- 
+
         else:
             upd(status="error", title=f"Unknown source: {src}")
             task_log(f"Unknown source '{src}'", "err")
             return
- 
+
         # ── DONE ──────────────────────────────────────────────────────────────
-        ok_n   = _fetch_tasks[task_id]["ok_count"]
-        err_n  = _fetch_tasks[task_id]["err_count"]
-        final  = f"Done — {ok_n} OK · {err_n} errors"
+        ok_n  = _fetch_tasks[task_id]["ok_count"]
+        err_n = _fetch_tasks[task_id]["err_count"]
+        final = f"Done — {ok_n} OK · {err_n} errors"
         upd(status="done", title=final)
         task_log(f"✅ {final}", "inf")
- 
+
     except Exception as exc:
         import traceback as _tb
         msg = f"Fatal error: {exc}"
         upd(status="error", title=msg)
         task_log(msg, "err")
         task_log(_tb.format_exc(), "err")
- 
- 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _safe(v):
-    if isinstance(v, float) and (np.isnan(v) or np.isinf(v)): return None
-    if isinstance(v, np.integer):  return int(v)
-    if isinstance(v, np.floating): return float(v)
-    if isinstance(v, bool):        return bool(v)
-    return v
-
-def _sr(d): return {k: _safe(v) for k, v in d.items()}
-
-def _candles(df: pd.DataFrame) -> list:
-    out = []
-    for ts, row in df.iterrows():
-        t = int(pd.Timestamp(ts).timestamp())
-        out.append({"time": t,
-                    "open":   float(row["Open"]),
-                    "high":   float(row["High"]),
-                    "low":    float(row["Low"]),
-                    "close":  float(row["Close"]),
-                    "volume": float(row.get("Volume", 0))})
-    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -366,11 +312,12 @@ def static_files(filename): return send_from_directory(FRONTEND_DIR, filename)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Health
+# Health & logging
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.route("/api/health")
 def health(): return jsonify({"status": "ok", "version": "3.1"})
+
 
 @app.route("/api/log", methods=["POST"])
 def receive_frontend_log():
@@ -429,97 +376,98 @@ def get_log_stats():
 # Scanner
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _parse_scan_params(args) -> dict:
+    """
+    Shared param parser for /api/scan and /api/crypto/scan.
+    Accepts request.args (ImmutableMultiDict) or any dict-like.
+    Returns a dict of typed, validated scan parameters.
+    """
+    atr_zone_types_raw = args.get("atr_zone_types", "").strip()
+    return {
+        "direction":       args.get("direction",       "buy"),
+        "interval":        args.get("interval",        "1d"),
+        "order":           int(args.get("order",       5)),
+        "zone_lookback":   int(args.get("zone_lookback",  20)),
+        "legout_mult":     float(args.get("legout_mult",  1.35)),
+        "trend_filter":    args.get("trend_filter",    ""),
+        "strategy":        args.get("strategy",        "atr"),
+        "multi_order":     args.get("multi_order", "false").lower() == "true",
+        "order_low":       int(args.get("order_low",   5)),
+        "order_mid":       int(args.get("order_mid",   10)),
+        "order_high":      int(args.get("order_high",  20)),
+        "atr_zone_types":  (
+            [t.strip() for t in atr_zone_types_raw.split(",") if t.strip()]
+            if atr_zone_types_raw else None
+        ),
+        "structure_low":   parse_states(args.get("structure_low",  "")),
+        "structure_mid":   parse_states(args.get("structure_mid",  "")),
+        "structure_high":  parse_states(args.get("structure_high", "")),
+        "alignment_filter": args.get("alignment_filter", "any"),
+    }
+
 
 @app.route("/api/scan")
 def scan():
-    direction     = request.args.get("direction",       "buy")
-    interval      = request.args.get("interval",        "1d")
-    order         = int(request.args.get("order",       5))
-    zone_lookback = int(request.args.get("zone_lookback",  20))
-    legout_mult   = float(request.args.get("legout_mult",  1.35))
-    trend_filter  = request.args.get("trend_filter",    "")
-    strategy      = request.args.get("strategy",        "atr")
-    multi_order   = request.args.get("multi_order",  "false").lower() == "true"
-    order_low     = int(request.args.get("order_low",   5))
-    order_mid     = int(request.args.get("order_mid",   10))
-    order_high    = int(request.args.get("order_high",  20))
- 
-    # ATR zone sub-type filter
-    atr_zone_types_raw = request.args.get("atr_zone_types", "").strip()
-    atr_zone_types = (
-        [t.strip() for t in atr_zone_types_raw.split(",") if t.strip()]
-        if atr_zone_types_raw else None
-    )
- 
-    # Structure state filters (replace trend_low/mid/high)
-    def _parse_states(param: str) -> list:
-        raw = request.args.get(param, "").strip()
-        return [s.strip() for s in raw.split(",") if s.strip()] if raw else []
- 
-    structure_low  = _parse_states("structure_low")
-    structure_mid  = _parse_states("structure_mid")
-    structure_high = _parse_states("structure_high")
-    alignment_filter = request.args.get("alignment_filter", "any")
- 
-    tf_list = [t.strip() for t in trend_filter.split(",") if t.strip()] or None
- 
-    log.info(
-        "Scan request received",
-        direction=direction, interval=interval,
-        strategy=strategy,   multi_order=multi_order,
-        trend_filter=tf_list or "any",
-        order=order,
-    )
     import time as _time
     _t0 = _time.perf_counter()
 
+    p       = _parse_scan_params(request.args)
+    tf_list = [t.strip() for t in p["trend_filter"].split(",") if t.strip()] or None
 
-    stored = list_stored(interval)
+    log.info(
+        "Scan request received",
+        direction=p["direction"], interval=p["interval"],
+        strategy=p["strategy"],   multi_order=p["multi_order"],
+        trend_filter=tf_list or "any",
+        order=p["order"],
+    )
+
+    stored = list_stored(p["interval"])
     if not stored:
         return jsonify({
             "results": [], "count": 0,
-            "error": f"No data stored for interval '{interval}'."
+            "error": f"No data stored for interval '{p['interval']}'."
         })
- 
+
     data_d = {}
     for item in stored:
         sym = item["symbol"]
-        df  = load_stored_df(sym, interval)
+        df  = load_stored_df(sym, p["interval"])
         if df is not None and not df.empty:
             data_d[sym] = df
- 
+
     if not data_d:
         return jsonify({"results": [], "count": 0})
- 
+
     df_res = scan_watchlist(
         tickers=list(data_d.keys()),
         data_dict=data_d,
-        order=order,
-        zone_lookback=zone_lookback,
-        direction=direction,
+        order=p["order"],
+        zone_lookback=p["zone_lookback"],
+        direction=p["direction"],
         trend_filter=tf_list,
-        legout_mult=legout_mult,
-        strategy=strategy,
-        atr_zone_types=atr_zone_types,
-        multi_order=multi_order,
-        order_low=order_low,
-        order_mid=order_mid,
-        order_high=order_high,
-        structure_filter_low=structure_low   or None,
-        structure_filter_mid=structure_mid   or None,
-        structure_filter_high=structure_high or None,
-        alignment_filter=alignment_filter,
-        interval=interval,
+        legout_mult=p["legout_mult"],
+        strategy=p["strategy"],
+        atr_zone_types=p["atr_zone_types"],
+        multi_order=p["multi_order"],
+        order_low=p["order_low"],
+        order_mid=p["order_mid"],
+        order_high=p["order_high"],
+        structure_filter_low=p["structure_low"]   or None,
+        structure_filter_mid=p["structure_mid"]   or None,
+        structure_filter_high=p["structure_high"] or None,
+        alignment_filter=p["alignment_filter"],
+        interval=p["interval"],
     )
- 
+
     if df_res.empty:
         return jsonify({"results": [], "count": 0})
- 
-    records = [_sr(r) for r in df_res.to_dict(orient="records")]
+
+    records = [safe_dict(r) for r in df_res.to_dict(orient="records")]
     log.info(
         "Scan response sent",
         matched=len(records),
-        interval=interval,
+        interval=p["interval"],
         elapsed_ms=round((_time.perf_counter() - _t0) * 1000),
     )
     return jsonify({"results": records, "count": len(records)})
@@ -532,7 +480,6 @@ def structure_states():
     The frontend calls this once on load to populate the structure
     filter multi-selects without hardcoding state strings in JS.
     """
-    from algos.trend_analysis import STATE_GROUPS, STATE_LABELS
     return jsonify({
         "groups": {
             group: [
@@ -547,7 +494,6 @@ def structure_states():
             if s != "no_structure"
         ],
     })
- 
 
 
 @app.route("/api/symbols")
@@ -596,91 +542,63 @@ def chart_data(ticker):
     start_idx      = max(0, len(df) - zone_lookback) if zone_lookback > 0 else 0
 
     try:
-        buy_zones_raw = scan_zones(df, direction="buy", legout_mult=legout_mult,
-                                   max_base_candles=max_base_candles, start_idx=start_idx,
-                                   include_atr=include_atr, include_consolidation=include_consol)
+        buy_zones_raw = scan_zones(
+            df, direction="buy", legout_mult=legout_mult,
+            max_base_candles=max_base_candles, start_idx=start_idx,
+            include_atr=include_atr, include_consolidation=include_consol,
+        )
     except Exception as e:
-        print(f"[chart] buy scan_zones error: {e}"); buy_zones_raw = []
+        print(f"[chart] buy scan_zones error: {e}")
+        buy_zones_raw = []
 
     try:
-        sell_zones_raw = scan_zones(df, direction="sell", legout_mult=legout_mult,
-                                    max_base_candles=max_base_candles, start_idx=start_idx,
-                                    include_atr=include_atr, include_consolidation=include_consol)
+        sell_zones_raw = scan_zones(
+            df, direction="sell", legout_mult=legout_mult,
+            max_base_candles=max_base_candles, start_idx=start_idx,
+            include_atr=include_atr, include_consolidation=include_consol,
+        )
     except Exception as e:
-        print(f"[chart] sell scan_zones error: {e}"); sell_zones_raw = []
-
+        print(f"[chart] sell scan_zones error: {e}")
+        sell_zones_raw = []
 
     multiorder_data = None
     if multi_order:
         try:
-            mo = get_multiorder_structure(df, order_low=order_low, order_mid=order_mid, order_high=order_high)
-            def _mol(lv):
-                v   = mo[lv]
-                vel = v.get("velocity",  {})
-                amp = v.get("amplitude", {})
-                lr  = v.get("leg_ratio", {})
-                return {
-                    "order":       v.get("order", 0),
-                    "trend":       v.get("trend", ""),
-                    "score":       v.get("score", 0),
-                    "pivot_count": v.get("pivot_count", 0),
-                    "velocity":  {
-                        "current_vel":  vel.get("current_vel",  0),
-                        "avg_velocity": vel.get("avg_velocity", 0),
-                        "acceleration": vel.get("acceleration", 0),
-                        "accel_label":  vel.get("accel_label",  ""),
-                        "trend_vel":    vel.get("trend_vel",    0),
-                    },
-                    "amplitude": {
-                        "avg_amplitude":   amp.get("avg_amplitude",   0),
-                        "recent_avg":      amp.get("recent_avg",      0),
-                        "regime":          amp.get("regime",          ""),
-                        "variance_pct":    amp.get("variance_pct",    0),
-                        "amplitude_trend": amp.get("amplitude_trend", ""),
-                    },
-                    "leg_ratio": {
-                        "ratio":        lr.get("ratio",        1),
-                        "recent_ratio": lr.get("recent_ratio", 1),
-                        "avg_bull":     lr.get("avg_bull",     0),
-                        "avg_bear":     lr.get("avg_bear",     0),
-                        "label":        lr.get("label",        ""),
-                    },
-                }
-            multiorder_data = {"low": _mol("low"), "mid": _mol("mid"), "high": _mol("high"),
-                               "alignment": mo["alignment"], "combined_trend": mo.get("combined_trend", ""),
+            mo = get_multiorder_structure(
+                df, order_low=order_low, order_mid=order_mid, order_high=order_high
+            )
+            multiorder_data = {
+                "low":            _build_mo_level(mo["low"]),
+                "mid":            _build_mo_level(mo["mid"]),
+                "high":           _build_mo_level(mo["high"]),
+                "alignment":      mo["alignment"],
+                "combined_trend": mo.get("combined_trend", ""),
             }
         except Exception as e:
             print(f"[chart] multiorder error: {e}")
 
     payload = {
-        "ticker": ticker, "interval": interval,
-        "candles": _candles(df), "pivots": pivot_list,
-        "buy_zones":  _serialise_zones(buy_zones_raw),
-        "sell_zones": _serialise_zones(sell_zones_raw),
-        "trend": trend,
-    }
-
-    data_source = "cache"
-    if df is None or df.empty or not _is_fresh(df, interval):
-        df = fetch_ohlcv(ticker, interval=interval, days=days)
-        data_source = "live_fetch"
-
-    # Add to payload:
-    payload["meta"] = {
-        "data_source":  data_source,
-        "last_candle":  str(df.index[-1]) if not df.empty else None,
-        "candle_count": len(df),
-        "interval":     interval,
+        "ticker":     ticker,
+        "interval":   interval,
+        "candles":    candles(df),
+        "pivots":     pivot_list,
+        "buy_zones":  serialise_zones(buy_zones_raw),
+        "sell_zones": serialise_zones(sell_zones_raw),
+        "trend":      trend,
+        "meta": {
+            "data_source":  "cache",
+            "last_candle":  str(df.index[-1]) if not df.empty else None,
+            "candle_count": len(df),
+            "interval":     interval,
+        },
     }
 
     if multiorder_data:
         payload["multiorder"] = multiorder_data
 
-    # Embed full-history pivots per order so chart uses same data as scanner
-    # AFTER — fail loudly so the frontend logs a warning instead of silently diverging
     if multi_order:
         mp = {}
-        for lbl, ord_val in [('H', order_high), ('M', order_mid), ('L', order_low)]:
+        for lbl, ord_val in [("H", order_high), ("M", order_mid), ("L", order_low)]:
             mp[lbl] = [
                 {
                     "time":  int(pd.Timestamp(df.index[i]).timestamp()),
@@ -689,9 +607,51 @@ def chart_data(ticker):
                 }
                 for i, v, t in extrems(df, order=ord_val)
             ]
-        payload["multiorder_pivots"] = mp   # outside try — propagates as 500 if broken
+        payload["multiorder_pivots"] = mp
 
     return jsonify(payload)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Multi-order level serialiser — shared by chart_data and _trend
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _build_mo_level(v: dict) -> dict:
+    """
+    Serialise a single multi-order level dict (low / mid / high) to a
+    JSON-safe structure. Called from both chart_data() and _trend() so the
+    shape is always identical — was duplicated inline in both previously.
+    """
+    vel = v.get("velocity",  {})
+    amp = v.get("amplitude", {})
+    lr  = v.get("leg_ratio", {})
+    return {
+        "order":       v.get("order", 0),
+        "trend":       v.get("trend", ""),
+        "score":       v.get("score", 0),
+        "pivot_count": v.get("pivot_count", 0),
+        "velocity": {
+            "current_vel":  vel.get("current_vel",  0),
+            "avg_velocity": vel.get("avg_velocity", 0),
+            "acceleration": vel.get("acceleration", 0),
+            "accel_label":  vel.get("accel_label",  ""),
+            "trend_vel":    vel.get("trend_vel",    0),
+        },
+        "amplitude": {
+            "avg_amplitude":   amp.get("avg_amplitude",   0),
+            "recent_avg":      amp.get("recent_avg",      0),
+            "regime":          amp.get("regime",          ""),
+            "variance_pct":    amp.get("variance_pct",    0),
+            "amplitude_trend": amp.get("amplitude_trend", ""),
+        },
+        "leg_ratio": {
+            "ratio":        lr.get("ratio",        1),
+            "recent_ratio": lr.get("recent_ratio", 1),
+            "avg_bull":     lr.get("avg_bull",     0),
+            "avg_bear":     lr.get("avg_bear",     0),
+            "label":        lr.get("label",        ""),
+        },
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -710,10 +670,9 @@ def _trend(ticker, params):
     if not ticker:
         return jsonify({"error": "ticker required"}), 400
 
-    interval    = params.get("interval",          "1d")
+    interval    = params.get("interval",        "1d")
     _day_defaults = {"1m": 7, "5m": 30, "15m": 30, "1h": 90, "4h": 90}
-    _default_days = _day_defaults.get(interval, 500)
-    days = int(params.get("days", _default_days))
+    days        = int(params.get("days", _day_defaults.get(interval, 500)))
     order       = int(params.get("order",          5))
     min_str_pct = float(params.get("min_strength_pct", 0))
     atr_mult    = float(params.get("atr_mult",     0.0))
@@ -729,9 +688,7 @@ def _trend(ticker, params):
     last_price = float(df["Close"].iloc[-1])
     min_str    = last_price * min_str_pct / 100 if min_str_pct > 0 else 0.0
 
-    from algos.context import SymbolContext
     ctx      = SymbolContext.build(df)
-
     pvts     = extrems(df, order=order, min_strength=min_str, min_strength_atr_mult=atr_mult)
     trend    = detect_trend(pvts)
     strength = pivot_trend_strength(pvts)
@@ -741,79 +698,77 @@ def _trend(ticker, params):
     except Exception:
         cscore = {}
 
-    pivot_list = [{"time": int(pd.Timestamp(df.index[i]).timestamp()), "value": round(v, 2), "type": t, "bar": int(i)} for i, v, t in pvts]
+    pivot_list = [
+        {"time": int(pd.Timestamp(df.index[i]).timestamp()),
+         "value": round(v, 2), "type": t, "bar": int(i)}
+        for i, v, t in pvts
+    ]
 
     tagged = tag_signals(df, pvts[-30:])
     try:   edge = measure_edge(tagged).to_dict(orient="records")
     except: edge = []
 
-    atr_s = ctx.atr    
-    atr_l = [{"time": int(pd.Timestamp(ts).timestamp()), "value": round(float(v), 4)} for ts, v in zip(df.index, atr_s) if not np.isnan(v)]
+    atr_l = [
+        {"time": int(pd.Timestamp(ts).timestamp()), "value": round(float(v), 4)}
+        for ts, v in zip(df.index, ctx.atr)
+        if not np.isnan(v)
+    ]
 
     vel = compute_pivot_velocity(pvts)
     amp = compute_pivot_amplitude(pvts)
     lr  = compute_leg_ratio(pvts)
 
     payload = {
-        "ticker": ticker, "interval": interval, "last_price": round(last_price, 2),
-        "trend": trend, "pivot_count": len(pvts),
-        "trend_strength": _sr(strength), "confluence": _sr(cscore),
-        "pivots": pivot_list, "candles": _candles(df), "atr": atr_l[-200:],
-        "edge": [_sr(r) for r in edge],
-        "velocity":  {"current_vel": vel["current_vel"], "avg_velocity": vel["avg_velocity"], "acceleration": vel["acceleration"], "accel_label": vel["accel_label"], "trend_vel": vel["trend_vel"]},
-        "amplitude": {"avg_amplitude": amp["avg_amplitude"], "recent_avg": amp["recent_avg"], "regime": amp["regime"], "variance_pct": amp["variance_pct"]},
-        "leg_ratio": {"ratio": lr["ratio"], "recent_ratio": lr["recent_ratio"], "avg_bull": lr["avg_bull"], "avg_bear": lr["avg_bear"], "label": lr["label"]},
+        "ticker":         ticker,
+        "interval":       interval,
+        "last_price":     round(last_price, 2),
+        "trend":          trend,
+        "pivot_count":    len(pvts),
+        "trend_strength": safe_dict(strength),
+        "confluence":     safe_dict(cscore),
+        "pivots":         pivot_list,
+        "candles":        candles(df),
+        "atr":            atr_l[-200:],
+        "edge":           [safe_dict(r) for r in edge],
+        "velocity": {
+            "current_vel":  vel["current_vel"],
+            "avg_velocity": vel["avg_velocity"],
+            "acceleration": vel["acceleration"],
+            "accel_label":  vel["accel_label"],
+            "trend_vel":    vel["trend_vel"],
+        },
+        "amplitude": {
+            "avg_amplitude": amp["avg_amplitude"],
+            "recent_avg":    amp["recent_avg"],
+            "regime":        amp["regime"],
+            "variance_pct":  amp["variance_pct"],
+        },
+        "leg_ratio": {
+            "ratio":        lr["ratio"],
+            "recent_ratio": lr["recent_ratio"],
+            "avg_bull":     lr["avg_bull"],
+            "avg_bear":     lr["avg_bear"],
+            "label":        lr["label"],
+        },
     }
 
     if multi_order:
         try:
-            mo = get_multiorder_structure(df, order_low=order_low, order_mid=order_mid, order_high=order_high)
-
-            def _mo_level(lv):
-                v   = mo[lv]
-                vel = v.get("velocity",  {})
-                amp = v.get("amplitude", {})
-                lr  = v.get("leg_ratio", {})
-                return {
-                    "order":       v.get("order", 0),
-                    "trend":       v.get("trend", ""),
-                    "score":       v.get("score", 0),
-                    "pivot_count": v.get("pivot_count", 0),
-                    "velocity": {
-                        "current_vel":  vel.get("current_vel",  0),
-                        "avg_velocity": vel.get("avg_velocity", 0),
-                        "acceleration": vel.get("acceleration", 0),
-                        "accel_label":  vel.get("accel_label",  ""),
-                        "trend_vel":    vel.get("trend_vel",    0),
-                    },
-                    "amplitude": {
-                        "avg_amplitude":   amp.get("avg_amplitude",   0),
-                        "recent_avg":      amp.get("recent_avg",      0),
-                        "regime":          amp.get("regime",          ""),
-                        "variance_pct":    amp.get("variance_pct",    0),
-                        "amplitude_trend": amp.get("amplitude_trend", ""),
-                    },
-                    "leg_ratio": {
-                        "ratio":        lr.get("ratio",        1),
-                        "recent_ratio": lr.get("recent_ratio", 1),
-                        "avg_bull":     lr.get("avg_bull",     0),
-                        "avg_bear":     lr.get("avg_bear",     0),
-                        "label":        lr.get("label",        ""),
-                    },
-                }
-
+            mo = get_multiorder_structure(
+                df, order_low=order_low, order_mid=order_mid, order_high=order_high
+            )
             payload["multiorder"] = {
-                "low":            _mo_level("low"),
-                "mid":            _mo_level("mid"),
-                "high":           _mo_level("high"),
+                "low":            _build_mo_level(mo["low"]),
+                "mid":            _build_mo_level(mo["mid"]),
+                "high":           _build_mo_level(mo["high"]),
                 "alignment":      mo["alignment"],
                 "combined_trend": mo.get("combined_trend", ""),
             }
-            if "confluence" in payload and payload["confluence"]:
+            if payload.get("confluence"):
                 aln = mo["alignment"]
-                net = (aln["bull_count"] - aln["bear_count"]) / 3.0          # -1 to +1
-                payload["confluence"]["htf_score"] = (net + 1.0) / 2.0       # 0 to 1
-                payload["confluence"]["htf_trend"] = aln.get("majority", "") 
+                net = (aln["bull_count"] - aln["bear_count"]) / 3.0
+                payload["confluence"]["htf_score"] = (net + 1.0) / 2.0
+                payload["confluence"]["htf_trend"] = aln.get("majority", "")
         except Exception as e:
             print(f"[trend] multiorder error: {e}")
 
@@ -832,7 +787,7 @@ def token_check():
     ok, profile = is_token_valid(token)
     if ok:
         data = (profile or {}).get("data", {}) or {}
-        return jsonify({"valid": True, "name": data.get("user_name",""), "email": data.get("email","")})
+        return jsonify({"valid": True, "name": data.get("user_name", ""), "email": data.get("email", "")})
     return jsonify({"valid": False, "reason": "expired"})
 
 @app.route("/api/data/token/set", methods=["POST"])
@@ -847,23 +802,22 @@ def token_set():
 @app.route("/api/data/token/clear", methods=["POST"])
 def token_clear():
     from data_fetch.data_fetch import TOKEN_FILE
-    if TOKEN_FILE.exists(): TOKEN_FILE.unlink()
+    if TOKEN_FILE.exists():
+        TOKEN_FILE.unlink()
     return jsonify({"ok": True})
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# OAuth
+# OAuth — _auth_url() helper eliminates the 3× repeated f-string
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.route("/api/data/auth/start")
 def auth_start():
-    auth_url = f"{UPSTOX_AUTH_URL}?response_type=code&client_id={UPSTOX_KEY}&redirect_uri={UPSTOX_REDIRECT}"
-    return jsonify({"auth_url": auth_url, "redirect_uri": UPSTOX_REDIRECT})
+    return jsonify({"auth_url": _auth_url(), "redirect_uri": UPSTOX_REDIRECT})
 
 @app.route("/api/data/auth/start-redirect")
 def auth_start_redirect():
-    url = f"{UPSTOX_AUTH_URL}?response_type=code&client_id={UPSTOX_KEY}&redirect_uri={UPSTOX_REDIRECT}"
-    return redirect(url)
+    return redirect(_auth_url())
 
 @app.route("/api/data/auth/callback")
 def auth_callback():
@@ -877,103 +831,85 @@ def auth_callback():
     }, headers={"accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"})
     if r.status_code != 200:
         return f"<h2>❌ Token exchange failed</h2><pre>{r.text}</pre>", 400
-    token = r.json().get("access_token", "")
-    save_token(token)
-    return """<html><body style="font-family:sans-serif;background:#0d0f12;color:#e2e8f0;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
-    <div style="text-align:center"><div style="font-size:48px">✅</div>
-    <h2 style="margin:16px 0 8px">Authentication successful!</h2>
-    <p style="color:#7a8796">You can close this window.</p>
-    <script>setTimeout(()=>window.close(),2000)</script></div></body></html>"""
+    save_token(r.json().get("access_token", ""))
+    return """<html><body style="font-family:sans-serif;background:#0d0f12;color:#e2e8f0;
+        display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+        <div style="text-align:center"><div style="font-size:48px">✅</div>
+        <h2 style="margin:16px 0 8px">Authentication successful!</h2>
+        <p style="color:#7a8796">You can close this window.</p>
+        <script>setTimeout(()=>window.close(),2000)</script></div></body></html>"""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# DATA FETCH — Background task endpoints
+# Data fetch — background task endpoints
 # ─────────────────────────────────────────────────────────────────────────────
-
 
 @app.route("/api/data/fetch/start", methods=["POST"])
 def fetch_start():
     global _active_task_id
- 
-    # Block if a task is already running
+
     if _active_task_id and _fetch_tasks.get(_active_task_id, {}).get("status") == "running":
         return jsonify({
-            "ok":             False,
+            "ok":              False,
             "already_running": True,
-            "task_id":        _active_task_id,
-            "error":          "A fetch is already running",
+            "task_id":         _active_task_id,
+            "error":           "A fetch is already running",
         })
- 
-    body = request.get_json(force=True, silent=True) or {}
- 
-    # Common params
-    tf       = body.get("tf",       "1d")
-    src      = body.get("src",      "yfinance")
-    universe = body.get("universe", "NSE_EQ")
-    wl       = body.get("wl",       "nifty50")
-    force    = bool(body.get("force", False))
-    token    = load_token() or ""
- 
-    # Crypto-specific params (ignored for upstox / yfinance)
-    crypto_symbols = body.get("crypto_symbols", None)  # list[str] | null → defaults to CRYPTO_SYMBOLS
+
+    body           = request.get_json(force=True, silent=True) or {}
+    tf             = body.get("tf",       "1d")
+    src            = body.get("src",      "yfinance")
+    universe       = body.get("universe", "NSE_EQ")
+    wl             = body.get("wl",       "nifty50")
+    force          = bool(body.get("force", False))
+    token          = load_token() or ""
+    crypto_symbols = body.get("crypto_symbols", None)
     lookback_days  = int(body.get("lookback_days", 730))
- 
+
     task_id = str(uuid.uuid4())[:8]
     with _fetch_lock:
         _fetch_tasks[task_id] = {
-            "id":          task_id,
-            "status":      "starting",
-            "done":        0,
-            "total":       0,
-            "ok_count":    0,
-            "err_count":   0,
-            "title":       "Starting…",
-            "interval":    tf if src != "crypto" else "1m",
-            "log":         [],
-            "params":      {
-                "tf": tf, "src": src,
-                "universe": universe, "wl": wl,
-                "force": force,
-                "crypto_symbols": crypto_symbols,
-                "lookback_days":  lookback_days,
+            "id":        task_id,
+            "status":    "starting",
+            "done":      0,
+            "total":     0,
+            "ok_count":  0,
+            "err_count": 0,
+            "title":     "Starting…",
+            "interval":  tf if src != "crypto" else "1m",
+            "log":       [],
+            "params":    {
+                "tf": tf, "src": src, "universe": universe, "wl": wl, "force": force,
+                "crypto_symbols": crypto_symbols, "lookback_days": lookback_days,
             },
         }
     _active_task_id = task_id
- 
-    t = threading.Thread(
+
+    threading.Thread(
         target=_run_fetch_task,
-        args=(task_id, tf, src, universe, wl, force, token,
-              crypto_symbols, lookback_days),
+        args=(task_id, tf, src, universe, wl, force, token, crypto_symbols, lookback_days),
         daemon=True,
-    )
-    t.start()
- 
+    ).start()
+
     return jsonify({"ok": True, "task_id": task_id})
- 
 
 
 @app.route("/api/data/fetch/status")
 def fetch_status():
     global _active_task_id
-    task_id = request.args.get("task_id")
-
-    # If no task_id given, return the currently active task
-    if not task_id:
-        task_id = _active_task_id
+    task_id = request.args.get("task_id") or _active_task_id
 
     if not task_id or task_id not in _fetch_tasks:
         return jsonify({"status": "idle", "task_id": None})
 
     with _fetch_lock:
         t = dict(_fetch_tasks[task_id])
-        # Shallow copy log list
         t["log"] = list(t["log"])
 
     pct = int(t["done"] / max(t["total"], 1) * 100) if t["total"] else 0
-
     return jsonify({
         "task_id":   task_id,
-        "status":    t["status"],   # "starting" | "running" | "done" | "error" | "cancelled"
+        "status":    t["status"],
         "done":      t["done"],
         "total":     t["total"],
         "pct":       pct,
@@ -997,8 +933,6 @@ def fetch_cancel():
     return jsonify({"ok": True})
 
 
-# Keep the SSE endpoint as a legacy shim so any old clients still work
-# but it immediately redirects to the new pattern
 @app.route("/api/data/fetch/stream")
 def fetch_stream_legacy():
     """Legacy SSE shim — tells clients to use the new polling API."""
@@ -1016,7 +950,7 @@ def store_list():
     itv = request.args.get("interval", None)
     s   = storage_summary()
     if itv:
-        s["items"] = [i for i in s["items"] if i["interval"] == itv]
+        s["items"]         = [i for i in s["items"] if i["interval"] == itv]
         s["total_symbols"] = len(s["items"])
     return jsonify(s)
 
@@ -1030,55 +964,33 @@ def store_delete():
     return jsonify({"ok": delete_stored(symbol, interval)})
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Crypto scanner
+# ─────────────────────────────────────────────────────────────────────────────
+
 @app.route("/api/crypto/scan")
 def crypto_scan():
     """
     Run the zone + structure scanner over stored crypto perp symbols.
- 
+
     Accepts the same query parameters as /api/scan so the frontend
     scanner.js can call this with zero changes to its params payload.
     Differences from equity scan:
       - Data is always loaded from the 1m canonical store and resampled
       - Interval defaults to "15m" (not "1d")
-      - Symbols are the 10 stored perp symbols (no watchlist concept)
- 
-    Query params:  same as /api/scan
+      - Symbols are the stored perp symbols (no watchlist concept)
     """
     import time as _time
     _t0 = _time.perf_counter()
- 
-    # ── Parse params (identical keys to /api/scan) ─────────────────────────
-    direction     = request.args.get("direction",       "buy")
-    interval      = request.args.get("interval",        "15m")
-    order         = int(request.args.get("order",        5))
-    zone_lookback = int(request.args.get("zone_lookback", 20))
-    legout_mult   = float(request.args.get("legout_mult", 1.35))
-    strategy      = request.args.get("strategy",        "atr")
-    multi_order   = request.args.get("multi_order", "false").lower() == "true"
-    order_low     = int(request.args.get("order_low",   5))
-    order_mid     = int(request.args.get("order_mid",   10))
-    order_high    = int(request.args.get("order_high",  20))
- 
-    atr_zone_types_raw = request.args.get("atr_zone_types", "").strip()
-    atr_zone_types = (
-        [t.strip() for t in atr_zone_types_raw.split(",") if t.strip()]
-        if atr_zone_types_raw else None
-    )
- 
-    def _parse_states(param: str) -> list:
-        raw = request.args.get(param, "").strip()
-        return [s.strip() for s in raw.split(",") if s.strip()] if raw else []
- 
-    structure_low  = _parse_states("structure_low")
-    structure_mid  = _parse_states("structure_mid")
-    structure_high = _parse_states("structure_high")
-    alignment_filter = request.args.get("alignment_filter", "any")
-    trend_filter_raw = request.args.get("trend_filter", "").strip()
-    tf_list = [t.strip() for t in trend_filter_raw.split(",") if t.strip()] or None
- 
-    # ── Validate interval ──────────────────────────────────────────────────
-    # Normalise equity-style TF strings before validation
-    interval = _EQUITY_TO_CRYPTO_TF.get(interval, interval)
+
+    # Reuse the shared param parser — supply default overrides for crypto
+    args_with_crypto_defaults = request.args.to_dict()
+    args_with_crypto_defaults.setdefault("interval", "15m")
+    p = _parse_scan_params(args_with_crypto_defaults)
+
+    # parse_states already called inside _parse_scan_params
+    tf_list  = [t.strip() for t in p["trend_filter"].split(",") if t.strip()] or None
+    interval = _EQUITY_TO_CRYPTO_TF.get(p["interval"], p["interval"])
 
     supported = {"1m"} | set(DERIVED_INTERVALS.keys())
     if interval not in supported:
@@ -1086,62 +998,57 @@ def crypto_scan():
             "error":     f"Interval '{interval}' not supported for crypto.",
             "supported": sorted(supported),
         }), 400
- 
-    # ── Load data for all stored symbols ───────────────────────────────────
-    stored  = list_crypto_stored()          # [{"symbol":"BTCUSDT_PERP", ...}]
-    data_d  = {}
- 
+
+    stored = list_crypto_stored()
+    data_d = {}
     for item in stored:
-        sym_key = item["symbol"]            # e.g. "BTCUSDT_PERP"
-        base    = _crypto_base(sym_key)     # e.g. "BTC"
+        sym_key = item["symbol"]
+        base    = _crypto_base(sym_key)
         df      = _load_crypto_df(base, interval)
         if df is not None and not df.empty:
             data_d[sym_key] = df
- 
+
     if not data_d:
         return jsonify({
             "results": [], "count": 0,
             "error":   f"No crypto data stored for interval '{interval}'. "
                        f"Fetch 1m data first, then request a derived interval.",
         })
- 
+
     log.info(
         "Crypto scan request",
-        direction=direction, interval=interval,
-        symbols=len(data_d), strategy=strategy,
+        direction=p["direction"], interval=interval,
+        symbols=len(data_d), strategy=p["strategy"],
     )
- 
-    # ── Run scan — identical call to equity scan ───────────────────────────
-    # scan_watchlist is asset-class agnostic: it only cares about DataFrames
+
     df_res = scan_watchlist(
         tickers=list(data_d.keys()),
         data_dict=data_d,
-        order=order,
-        zone_lookback=zone_lookback,
-        direction=direction,
+        order=p["order"],
+        zone_lookback=p["zone_lookback"],
+        direction=p["direction"],
         trend_filter=tf_list,
-        legout_mult=legout_mult,
-        strategy=strategy,
-        atr_zone_types=atr_zone_types,
-        multi_order=multi_order,
-        order_low=order_low,
-        order_mid=order_mid,
-        order_high=order_high,
-        structure_filter_low=structure_low  or None,
-        structure_filter_mid=structure_mid  or None,
-        structure_filter_high=structure_high or None,
-        alignment_filter=alignment_filter,
+        legout_mult=p["legout_mult"],
+        strategy=p["strategy"],
+        atr_zone_types=p["atr_zone_types"],
+        multi_order=p["multi_order"],
+        order_low=p["order_low"],
+        order_mid=p["order_mid"],
+        order_high=p["order_high"],
+        structure_filter_low=p["structure_low"]   or None,
+        structure_filter_mid=p["structure_mid"]   or None,
+        structure_filter_high=p["structure_high"] or None,
+        alignment_filter=p["alignment_filter"],
         interval=interval,
     )
- 
+
     if df_res.empty:
         return jsonify({"results": [], "count": 0})
- 
-    records = [_sr(r) for r in df_res.to_dict(orient="records")]
+
+    records = [safe_dict(r) for r in df_res.to_dict(orient="records")]
     log.info(
         "Crypto scan complete",
-        matched=len(records),
-        interval=interval,
+        matched=len(records), interval=interval,
         elapsed_ms=round((_time.perf_counter() - _t0) * 1000),
     )
     return jsonify({"results": records, "count": len(records)})
@@ -1151,33 +1058,31 @@ def crypto_scan():
 def crypto_chart(base: str):
     """
     Returns OHLCV + pivots + zones for a single crypto perp symbol.
- 
+
     Mirrors the contract of /api/chart/<ticker> exactly so Chart.js
     can call it with the same response parsing logic.
- 
+
     Path param:
         base: accepts any format — "BTC", "BTCUSDT", "BTCUSDT_PERP"
- 
+
     Query params:  same as /api/chart/<ticker>
     """
     base_clean    = _crypto_base(base)
-    interval      = request.args.get("interval",       "15m")
-    interval      = _EQUITY_TO_CRYPTO_TF.get(interval, interval)   # ← ADD: normalise 1wk→1w
-    order         = int(request.args.get("order",        5))
-    legout_mult   = float(request.args.get("legout_mult", 1.35))
-    strategy      = request.args.get("strategy",        "atr")
-    zone_lookback = int(request.args.get("zone_lookback", 20))
-    multi_order   = request.args.get("multi_order", "false").lower() == "true"
-    order_low     = int(request.args.get("order_low",    5))
-    order_mid     = int(request.args.get("order_mid",   10))
-    order_high    = int(request.args.get("order_high",  20))
-    max_base_candles = int(request.args.get("max_base",  8))
-    # Limit candles sent to chart — crypto has massive datasets (1m = 500k+ rows).
-    # 1000 candles is sufficient for chart display + pivot calculation.
-    # Pivots always use the full dataset for accuracy; only the chart render is limited.
-    candle_limit  = int(request.args.get("candle_limit", 1000))
- 
-    # ── Load OHLCV ─────────────────────────────────────────────────────────
+    interval      = _EQUITY_TO_CRYPTO_TF.get(
+        request.args.get("interval", "15m"),
+        request.args.get("interval", "15m"),
+    )
+    order            = int(request.args.get("order",        5))
+    legout_mult      = float(request.args.get("legout_mult", 1.35))
+    strategy         = request.args.get("strategy",        "atr")
+    zone_lookback    = int(request.args.get("zone_lookback", 20))
+    multi_order      = request.args.get("multi_order", "false").lower() == "true"
+    order_low        = int(request.args.get("order_low",    5))
+    order_mid        = int(request.args.get("order_mid",   10))
+    order_high       = int(request.args.get("order_high",  20))
+    max_base_candles = int(request.args.get("max_base",     8))
+    candle_limit     = int(request.args.get("candle_limit", 1000))
+
     df = _load_crypto_df(base_clean, interval)
     if df is None or df.empty:
         return jsonify({
@@ -1187,22 +1092,20 @@ def crypto_chart(base: str):
             )
         }), 404
 
-    # Strip timezone from index — algos (extrems, scan_zones, etc.) expect
-    # a tz-naive DatetimeIndex, same as the equity pipeline produces.
-    if hasattr(df.index, 'tz') and df.index.tz is not None:
+    if hasattr(df.index, "tz") and df.index.tz is not None:
         df = df.copy()
         df.index = df.index.tz_localize(None)
 
     try:
-        return _crypto_chart_inner(base_clean, df, interval, order, legout_mult,
-                                   strategy, zone_lookback, multi_order,
-                                   order_low, order_mid, order_high, max_base_candles,
-                                   candle_limit)
+        return _crypto_chart_inner(
+            base_clean, df, interval, order, legout_mult,
+            strategy, zone_lookback, multi_order,
+            order_low, order_mid, order_high, max_base_candles, candle_limit,
+        )
     except Exception as exc:
         import traceback as _tb
         tb_str = _tb.format_exc()
         log.error("crypto_chart exception", base=base_clean, interval=interval, error=str(exc))
-        log.error(tb_str)
         return jsonify({"error": str(exc), "traceback": tb_str}), 500
 
 
@@ -1210,28 +1113,20 @@ def _crypto_chart_inner(base_clean, df, interval, order, legout_mult,
                         strategy, zone_lookback, multi_order,
                         order_low, order_mid, order_high, max_base_candles,
                         candle_limit=1000):
-    # ── Use full df for pivots & zones (accuracy), truncated for candle render ──
-    # Pivots on 1m need full history context; only the rendered candles are limited.
     df_chart = df.tail(candle_limit).copy() if len(df) > candle_limit else df
-    pvts  = extrems(df, order=order)   # list of (bar_idx, value, type)
+    pvts  = extrems(df, order=order)
     trend = detect_trend(pvts)
     atr   = compute_atr(df)
 
-    # Serialise pivots to match /api/chart contract: {time, value, type}
     pivot_list = [
-        {
-            "time":  int(pd.Timestamp(df.index[i]).timestamp()),
-            "value": round(float(v), 8),
-            "type":  t,
-        }
+        {"time":  int(pd.Timestamp(df.index[i]).timestamp()),
+         "value": round(float(v), 8), "type": t}
         for i, v, t in pvts
     ]
 
-    # ── Zones — same format as equity /api/chart ───────────────────────────
     include_atr    = strategy in ("atr",  "both")
     include_consol = strategy in ("consolidation", "both")
     start_idx      = max(0, len(df) - zone_lookback) if zone_lookback > 0 else 0
-
 
     try:
         buy_zones_raw = scan_zones(
@@ -1253,67 +1148,52 @@ def _crypto_chart_inner(base_clean, df, interval, order, legout_mult,
         log.warning("crypto_chart: sell zones failed", base=base_clean, error=str(e))
         sell_zones_raw = []
 
-    # ── Multi-order pivots (same structure as equity chart) ────────────────
     multiorder_pivots = None
     if multi_order:
         try:
             multiorder_pivots = {}
             for lbl, ord_val in [("H", order_high), ("M", order_mid), ("L", order_low)]:
                 multiorder_pivots[lbl] = [
-                    {
-                        "time":  int(pd.Timestamp(df.index[i]).timestamp()),
-                        "value": round(float(v), 8),
-                        "type":  t,
-                    }
+                    {"time":  int(pd.Timestamp(df.index[i]).timestamp()),
+                     "value": round(float(v), 8), "type": t}
                     for i, v, t in extrems(df, order=ord_val)
                 ]
         except Exception as e:
             log.warning("crypto_chart: multiorder pivots failed", error=str(e))
             multiorder_pivots = None
 
-    # ── Candles — use truncated df_chart (last 1000 bars) for speed ──────────
-    # chart.js sanitise() checks: time (int unix), open/high/low/close/volume (float)
-    candle_list = _candles(df_chart)   # df_chart is already tail(candle_limit)
-
-    # ── ATR ────────────────────────────────────────────────────────────────
-    atr_val = _safe(round(float(atr.iloc[-1]), 8)) if not atr.empty else None
+    atr_val = float(atr.iloc[-1]) if not atr.empty else None
     atr_pct = None
     if atr_val and float(df["Close"].iloc[-1]) > 0:
-        atr_pct = _safe(round(atr_val / float(df["Close"].iloc[-1]) * 100, 4))
+        atr_pct = round(atr_val / float(df["Close"].iloc[-1]) * 100, 4)
 
     payload = {
-        "ticker":    _file_key(base_clean),   # "BTCUSDT_PERP"
-        "interval":  interval,
+        "ticker":      _file_key(base_clean),
+        "interval":    interval,
         "asset_class": "crypto",
-        # ── candles: same schema as /api/chart ─────────────────────────────
-        "candles":   candle_list,
-        # ── pivots ──────────────────────────────────────────────────────────
-        "pivots":    pivot_list,
-        # ── zones — same keys as /api/chart so chart.js reads them ─────────
-        "buy_zones":  _serialise_zones(buy_zones_raw),
-        "sell_zones": _serialise_zones(sell_zones_raw),
-        # ── trend & metrics ─────────────────────────────────────────────────
-        "trend":    trend,
-        "atr":      atr_val,
-        "atr_pct":  atr_pct,
+        "candles":     candles(df_chart),
+        "pivots":      pivot_list,
+        "buy_zones":   serialise_zones(buy_zones_raw),
+        "sell_zones":  serialise_zones(sell_zones_raw),
+        "trend":       trend,
+        "atr":         atr_val,
+        "atr_pct":     atr_pct,
     }
     if multiorder_pivots:
         payload["multiorder_pivots"] = multiorder_pivots
 
     return jsonify(payload)
- 
- 
-# ─────────────────────────────────────────────────────────────────────────────
-# [5] /api/crypto/intervals — tells frontend which intervals are available
-# ─────────────────────────────────────────────────────────────────────────────
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Crypto utility routes
+# ─────────────────────────────────────────────────────────────────────────────
 
 @app.route("/api/crypto/intervals")
 def crypto_intervals():
     """
     Returns the canonical interval list for crypto perps.
-    Frontend calls this on init to populate the TF buttons dynamically
-    rather than hardcoding them.
+    Frontend calls this on init to populate the TF buttons dynamically.
     """
     return jsonify({
         "intervals": [
@@ -1329,14 +1209,8 @@ def crypto_intervals():
 
 @app.route("/api/crypto/store")
 def crypto_store():
-    """
-    Storage info for all crypto perp symbols.
-    Powers the Crypto tab in the store browser.
- 
-    Returns a list of dicts:
-        symbol, interval, rows, first_date, last_date, size_kb, source
-    """
-    items = list_crypto_stored()
+    """Storage info for all crypto perp symbols. Powers the Crypto tab in the store browser."""
+    items    = list_crypto_stored()
     total_kb = sum(it["size_kb"] for it in items)
     return jsonify({
         "total_symbols": len(items),
@@ -1344,45 +1218,32 @@ def crypto_store():
         "items":         items,
         "source":        "binance_perp",
     })
- 
- 
+
 @app.route("/api/crypto/symbols")
 def crypto_symbols_route():
     """List of all crypto symbol keys that have 1m data stored."""
     items = list_crypto_stored()
-    return jsonify({
-        "symbols": [it["symbol"] for it in items],
-        "count":   len(items),
-    })
- 
- 
+    return jsonify({"symbols": [it["symbol"] for it in items], "count": len(items)})
+
 @app.route("/api/crypto/store/delete", methods=["POST"])
 def crypto_store_delete():
     """Delete all stored data (raw 1m + all derived TFs) for a crypto symbol."""
     body = request.get_json(force=True, silent=True) or {}
-    base = (
-        body.get("base", "")
-            .upper()
-            .replace("USDT_PERP", "")
-            .replace("USDT", "")
-            .replace("_PERP", "")
-            .strip()
-    )
+    base = _crypto_base(body.get("base", ""))
     if not base:
         return jsonify({"ok": False, "error": "base symbol required e.g. 'BTC'"}), 400
-    ok = delete_crypto_stored(base)
-    return jsonify({"ok": ok, "deleted": base})
+    return jsonify({"ok": delete_crypto_stored(base), "deleted": base})
 
-# ─────────────────────────────────────────────────────────────
-# debugging:
-# ─────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Debug
+# ─────────────────────────────────────────────────────────────────────────────
 
 @app.route("/api/debug/pivots/<path:ticker>")
 def debug_pivots(ticker):
     import traceback as tb
     interval   = request.args.get("interval", "1d")
-    orders_raw = request.args.get("orders", "5,10,20")
-    orders     = [int(x.strip()) for x in orders_raw.split(",") if x.strip()]
+    orders     = [int(x.strip()) for x in request.args.get("orders", "5,10,20").split(",") if x.strip()]
 
     df = load_stored_df(ticker, interval)
     if df is None or df.empty:
@@ -1390,17 +1251,14 @@ def debug_pivots(ticker):
     if df is None or df.empty:
         return jsonify({"error": f"no data for {ticker}"}), 404
 
-    report = {"ticker": ticker, "interval": interval,
-               "candles": len(df), "orders": {}}
+    report = {"ticker": ticker, "interval": interval, "candles": len(df), "orders": {}}
 
     print(f"\n{'='*60}")
     print(f"DEBUG PIVOTS  ticker={ticker}  interval={interval}  rows={len(df)}")
 
-    # Candle validation
-    candle_times = [int(pd.Timestamp(ts).timestamp()) for ts in df.index]
-    candle_dups  = len(candle_times) - len(set(candle_times))
-    candle_sorted = all(candle_times[i] < candle_times[i+1]
-                        for i in range(len(candle_times)-1))
+    candle_times  = [int(pd.Timestamp(ts).timestamp()) for ts in df.index]
+    candle_dups   = len(candle_times) - len(set(candle_times))
+    candle_sorted = all(candle_times[i] < candle_times[i+1] for i in range(len(candle_times)-1))
     report["candle_duplicates"]   = candle_dups
     report["candle_times_sorted"] = candle_sorted
 
@@ -1413,7 +1271,7 @@ def debug_pivots(ticker):
 
     for order in orders:
         try:
-            pvts = extrems(df, order=order)
+            pvts       = extrems(df, order=order)
             pivot_list = [
                 {"time": int(pd.Timestamp(df.index[i]).timestamp()),
                  "value": round(float(v), 2), "type": t}
@@ -1427,18 +1285,17 @@ def debug_pivots(ticker):
             has_none  = any(v is None for v in values)
 
             report["orders"][order] = {
-                "pivot_count": len(pvts),
-                "duplicates":  dups,
-                "sorted":      sorted_ok,
-                "has_nan":     has_nan,
-                "has_none":    has_none,
+                "pivot_count":  len(pvts),
+                "duplicates":   dups,
+                "sorted":       sorted_ok,
+                "has_nan":      has_nan,
+                "has_none":     has_none,
                 "sample_last3": pivot_list[-3:],
             }
 
             status = "OK  " if (dups==0 and sorted_ok and not has_nan and not has_none) else "FAIL"
-            print(f"  [ORDER={order:>3}] {status}: "
-                  f"{len(pvts):>4} pivots  sorted={sorted_ok}  "
-                  f"dups={dups}  nan={has_nan}  none={has_none}")
+            print(f"  [ORDER={order:>3}] {status}: {len(pvts):>4} pivots  "
+                  f"sorted={sorted_ok}  dups={dups}  nan={has_nan}  none={has_none}")
 
             if dups > 0:
                 seen = set(); dup_times = []
@@ -1463,50 +1320,9 @@ def debug_pivots(ticker):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Entry point
+# Entry point — port management moved to run.py
 # ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    import socket, subprocess, platform
-
-    port = int(os.environ.get("PORT", 5050))
-
-    def _port_in_use(p):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            return s.connect_ex(("127.0.0.1", p)) == 0
-
-    def _kill_port(p):
-        try:
-            if platform.system() == "Darwin":
-                result = subprocess.run(["lsof", "-ti", f"tcp:{p}"], capture_output=True, text=True)
-                pids = result.stdout.strip().split()
-                for pid in pids: subprocess.run(["kill", "-9", pid], capture_output=True)
-                return bool(pids)
-            else:
-                result = subprocess.run(["fuser", "-k", f"{p}/tcp"], capture_output=True, text=True)
-                return result.returncode == 0
-        except Exception as e:
-            print(f"  ⚠  Could not auto-kill port {p}: {e}")
-            return False
-
-    if _port_in_use(port):
-        print(f"  Port {port} is in use — killing stale process…")
-        killed = _kill_port(port)
-        if killed:
-            time.sleep(0.8)
-            if _port_in_use(port):
-                port += 1
-        else:
-            port += 1
-
-    print(f"""
-╔══════════════════════════════════════════════════╗
-║  ⚡  QuantScanner  v3.1                          ║
-╠══════════════════════════════════════════════════╣
-║  Dashboard    →  http://localhost:{port}            ║
-║  Trend Viewer →  http://localhost:{port}/trend      ║
-║  Data Fetch   →  http://localhost:{port}/data       ║
-║  API health   →  http://localhost:{port}/api/health ║
-╚══════════════════════════════════════════════════╝
-""")
-    app.run(debug=False, port=port, host="0.0.0.0", use_reloader=False, threaded=True)
+    from run import start
+    start(app)
