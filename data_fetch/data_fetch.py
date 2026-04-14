@@ -16,7 +16,7 @@ Local layout:
 
 from __future__ import annotations
 
-import os, gzip, json, time, warnings, datetime as dt
+import math, os, gzip, json, time, warnings, datetime as dt
 from io import BytesIO
 from pathlib import Path
 from typing import Generator, List, Optional, Dict, Tuple
@@ -76,6 +76,9 @@ UPSTOX_MAX_DAYS_PER_CALL: Dict[str, int] = {
     "1d":  1000,
     "1wk": 2000,
 }
+# Total history target for 1h — achieved via chunked fetching.
+# All other intervals are unchanged (single API call).
+_1H_TOTAL_DAYS = 180   # 6 × 31-day chunks → ~756 bars of 1h history
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Token helpers
@@ -510,6 +513,102 @@ def _add_prev_close(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# 1H CHUNKED FETCH  (Upstox caps 1h at 31 days per call)
+# Only used for interval="1h". All other intervals use the normal single-call path.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _fetch_1h_chunked(
+    api_instance,
+    instrument_key: str,
+    token: str,
+    total_days: int = _1H_TOTAL_DAYS,
+    log_fn=None,
+) -> Optional[pd.DataFrame]:
+    """
+    Fetch up to `total_days` of 1h OHLCV by making multiple sequential API calls,
+    each covering 31 days, walking backwards from today.
+
+    Speed design:
+        - Chunks for ONE symbol are sequential (Upstox requires non-overlapping
+          date windows per instrument — can't parallelise within a symbol).
+        - Inter-chunk sleep is 0.1s — enough to avoid per-key rate limiting.
+        - Symbols ARE parallelised in fetch_upstox_batch_iter (3 workers).
+        - Net throughput: 3 symbols × 6 chunks = 18 calls in-flight at once,
+          each symbol's chunks are sequential, workers are concurrent.
+        - 50-symbol watchlist: ~50/3 × 6 × 0.1s ≈ 10s (vs ~100s serial).
+    """
+    def _log(msg: str):
+        if log_fn:
+            log_fn(msg)
+        print(f"  [1H-CHUNK] {msg}")
+
+    chunk_size = UPSTOX_MAX_DAYS_PER_CALL["1h"]   # 31
+    num_chunks = math.ceil(total_days / chunk_size)
+    end_dt     = dt.datetime.now()
+    all_chunks: List[pd.DataFrame] = []
+
+    _log(f"{instrument_key[-20:]} | 1h | target={total_days}d | chunks={num_chunks}")
+
+    for i in range(num_chunks):
+        chunk_end_dt   = end_dt - dt.timedelta(days=i * chunk_size)
+        chunk_start_dt = chunk_end_dt - dt.timedelta(days=chunk_size)
+
+        start_str = chunk_start_dt.strftime("%Y-%m-%d")
+        end_str   = chunk_end_dt.strftime("%Y-%m-%d")
+
+        # Retry once on failure before giving up on this chunk
+        for attempt in range(2):
+            try:
+                if i == 0:
+                    # Most recent chunk: stitch today's intraday bars too
+                    df_chunk = fetch_candle_data_with_today(
+                        api_instance, instrument_key,
+                        start_str, end_str, "1h", token
+                    )
+                else:
+                    # Older chunks: historical only, no intraday needed
+                    df_chunk = fetch_candle_data(
+                        api_instance, instrument_key,
+                        start_str, end_str, "1h"
+                    )
+
+                if df_chunk is not None and not df_chunk.empty:
+                    all_chunks.append(df_chunk)
+                    _log(f"  [{i+1}/{num_chunks}] {start_str}→{end_str} | {len(df_chunk)} bars ✓")
+                else:
+                    _log(f"  [{i+1}/{num_chunks}] no data — may predate listing, stopping")
+                    # Signal outer loop to stop going further back
+                    i = num_chunks  # break outer for loop
+                break  # success — don't retry
+
+            except Exception as e:
+                if attempt == 0:
+                    _log(f"  [{i+1}/{num_chunks}] failed ({e}) — retrying in 1s")
+                    time.sleep(1.0)
+                else:
+                    _log(f"  [{i+1}/{num_chunks}] failed again ({e}) — skipping")
+
+        # Stop if we hit a no-data chunk (IPO boundary)
+        if i >= num_chunks:
+            break
+
+        # Short sleep between chunks — enough for Upstox rate limiting
+        if i < num_chunks - 1:
+            time.sleep(0.1)
+
+    if not all_chunks:
+        return None
+
+    combined = pd.concat(all_chunks)
+    combined = combined[~combined.index.duplicated(keep="last")]
+    combined.sort_index(inplace=True)
+    _log(
+        f"  merged: {len(combined)} bars | "
+        f"{combined.index[0].date()} → {combined.index[-1].date()}"
+    )
+    return combined
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Public: fetch_ohlcv  (local store → Upstox only)
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -529,6 +628,15 @@ def fetch_ohlcv(
     instrument_key is auto-resolved from ticker symbol if not provided.
     Always writes result back to data_store/.
     """
+
+    # ── 1h uses a special chunked fetch — all other intervals unchanged ──────
+    if interval == "1h":
+        return _fetch_ohlcv_1h(
+            ticker,
+            force_refresh=force_refresh,
+            upstox_token=upstox_token,
+            instrument_key=instrument_key,
+        )
 
     end_str = end or dt.datetime.now().strftime("%Y-%m-%d")
 
@@ -567,6 +675,92 @@ def fetch_ohlcv(
         return df
     return pd.DataFrame()
 
+
+
+def _fetch_ohlcv_1h(
+    ticker: str,
+    force_refresh: bool = False,
+    upstox_token: Optional[str] = None,
+    instrument_key: Optional[str] = None,
+) -> pd.DataFrame:
+    """
+    Smart 1h fetcher. Two modes:
+      - APPEND: data already exists → fetch only the gap since last stored bar
+                (single 31-day API call, fast, normal daily operation)
+      - FULL:   no data stored yet → chunked fetch for _1H_TOTAL_DAYS of history
+                (multiple API calls, only runs once per symbol)
+
+    This is the ONLY function that handles interval="1h".
+    All other intervals go through the standard fetch_ohlcv path unchanged.
+    """
+    cached = load_stored_df(ticker, "1h")
+
+    # Serve from cache if fresh — zero API calls
+    if not force_refresh and _is_fresh(cached, "1h"):
+        return cached
+
+    token = upstox_token or load_token()
+    if not token:
+        print(f"  ⚠  No Upstox token — cannot fetch {ticker} 1h")
+        return cached if cached is not None else pd.DataFrame()
+
+    ikey = instrument_key or resolve_instrument_key(ticker)
+    if not ikey:
+        print(f"  ⚠  No instrument key for {ticker}")
+        return cached if cached is not None else pd.DataFrame()
+
+    api = get_upstox_api_client(token)
+
+    # ── Decide: APPEND or FULL based on history depth ────────────────────────
+    # APPEND only when: data exists AND history is deep enough AND not force_refresh
+    # FULL  when:       no data  OR  stored < 90% of target  OR  force_refresh
+    _has_data      = cached is not None and not cached.empty
+    _stored_days   = (pd.Timestamp.now() - cached.index[0]).days if _has_data else 0
+    _needs_history = _stored_days < (_1H_TOTAL_DAYS * 0.9)   # < 162 days
+
+    if _has_data and not force_refresh and not _needs_history:
+        # ── APPEND MODE: history is deep enough, just fill recent gap ────────
+        last_stored = cached.index[-1]
+        gap_days    = (dt.datetime.now() - last_stored).days + 1
+
+        if gap_days <= 0:
+            return cached
+
+        gap_days  = min(gap_days, UPSTOX_MAX_DAYS_PER_CALL["1h"])
+        start_str = last_stored.strftime("%Y-%m-%d")
+        end_str   = dt.datetime.now().strftime("%Y-%m-%d")
+
+        print(f"  [1H] {ticker}: append {gap_days}d gap since {last_stored.date()}")
+
+        df_new = fetch_candle_data_with_today(api, ikey, start_str, end_str, "1h", token)
+        if df_new is not None and not df_new.empty:
+            combined = pd.concat([cached, df_new])
+            combined = combined[~combined.index.duplicated(keep="last")]
+            combined.sort_index(inplace=True)
+            store_df(ticker, "1h", combined)
+            print(f"  [1H] {ticker}: store now {len(combined)} bars "
+                  f"({combined.index[0].date()} → {combined.index[-1].date()})")
+            return combined
+
+        print(f"  ⚠  [1H] {ticker}: append failed, returning cached data")
+        return cached
+
+    # ── FULL HISTORY MODE: no data, shallow history, or force_refresh ────────
+    if _has_data and _needs_history:
+        print(f"  [1H] {ticker}: only {_stored_days}d stored (need {_1H_TOTAL_DAYS}d) "
+              f"— running full chunked fetch")
+    else:
+        print(f"  [1H] {ticker}: full history fetch ({_1H_TOTAL_DAYS}d)")
+
+    df_full = _fetch_1h_chunked(api, ikey, token)
+    if df_full is not None and not df_full.empty:
+        store_df(ticker, "1h", df_full)
+        print(f"  [1H] {ticker}: stored {len(df_full)} bars "
+              f"({df_full.index[0].date()} → {df_full.index[-1].date()})")
+        return df_full
+
+    # Full fetch failed — return whatever we have (could be stale)
+    return cached if cached is not None else pd.DataFrame()
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Public: fetch_batch  (parallel, Upstox only, crash-safe)
@@ -631,6 +825,14 @@ def fetch_batch(
         ikey = key_map.get(t, "")
         if not ikey:
             return t, None
+        # 1h uses its own smart chunked/append fetcher — all other intervals unchanged
+        if interval == "1h":
+            return t, _fetch_ohlcv_1h(
+                t,
+                force_refresh=force_refresh,
+                upstox_token=token,
+                instrument_key=ikey,
+            )
         return t, fetch_candle_data_with_today(
             api, ikey, start_str, end_str, interval, token
         )
@@ -887,24 +1089,72 @@ def fetch_upstox_batch_iter(
     interval: str,
     token: str,
     max_workers: int = 2,
-    batch_size: int = 50,       # process in small batches to avoid memory overload
-) -> Generator[Tuple[int, int, str, bool], None, None]:
+    batch_size: int = 50,
+) -> Generator[Tuple[int, int, str, bool, str], None, None]:
     """
-    Yields (done, total, symbol, ok) for SSE streaming.
-    Processes in batches of batch_size to avoid overwhelming Upstox API.
+    Yields (done, total, symbol, ok, err_msg) for SSE streaming.
+
+    1h speed strategy:
+        Symbols are fetched with max_workers=3 in parallel.
+        Each symbol's 6 chunks stay sequential (Upstox requires sequential
+        date windows per instrument key).
+        Result: 3 symbols fetch concurrently, each doing 6 × 0.1s = 0.6s.
+        50 symbols → ceil(50/3) batches × ~2s ≈ 34s  (vs ~300s serial).
+        200 symbols → ceil(200/3) batches × ~2s ≈ 134s (vs ~1200s serial).
+
+    All other intervals: original parallel path, unchanged.
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    sym_map = instrument_key_to_symbol()
+    total   = len(instrument_keys)
+    done    = 0
+
+    # ── 1h: parallel symbols, sequential chunks per symbol ───────────────────
+    if interval == "1h":
+        # Use 3 workers — safe because each worker's chunks are sequential,
+        # so max concurrent Upstox calls = 3, well within rate limits.
+        _1h_workers = min(3, max_workers if max_workers > 2 else 3)
+
+        def _fetch_one_1h(ikey: str) -> Tuple[str, Optional[pd.DataFrame], str]:
+            sym     = sym_map.get(ikey, ikey)
+            err_msg = ""
+            try:
+                df = _fetch_ohlcv_1h(
+                    sym,
+                    force_refresh=False,
+                    upstox_token=token,
+                    instrument_key=ikey,
+                )
+                if df is None or df.empty:
+                    err_msg = "no data returned"
+                return sym, df, err_msg
+            except Exception as e:
+                return sym, None, str(e)
+
+        # Process in batches to yield progress incrementally
+        for batch_start in range(0, total, batch_size):
+            batch = instrument_keys[batch_start: batch_start + batch_size]
+
+            with ThreadPoolExecutor(max_workers=_1h_workers) as executor:
+                future_to_ikey = {
+                    executor.submit(_fetch_one_1h, ikey): ikey
+                    for ikey in batch
+                }
+                for future in as_completed(future_to_ikey):
+                    sym, df, err_msg = future.result()
+                    done += 1
+                    ok    = df is not None and not df.empty
+                    yield done, total, sym, ok, err_msg
+        return
+
+    # ── All other intervals: original parallel path — completely unchanged ────
     _max      = UPSTOX_MAX_DAYS_PER_CALL.get(interval, 700)
     _days     = min(DAYS_LOOKBACK.get(interval, 700), _max)
     end_str   = dt.datetime.now().strftime("%Y-%m-%d")
     start_str = (dt.datetime.now() - dt.timedelta(days=_days)).strftime("%Y-%m-%d")
-    sym_map   = instrument_key_to_symbol()
     api       = get_upstox_api_client(token)
-    total     = len(instrument_keys)
-    done      = 0
 
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
-    # Process in small batches — avoids submitting 3000 futures at once
     for batch_start in range(0, total, batch_size):
         batch = instrument_keys[batch_start: batch_start + batch_size]
 
@@ -934,7 +1184,7 @@ def fetch_upstox_batch_iter(
                     ok      = False
                     err_msg = str(e)
                 yield done, total, sym, ok, err_msg
-                time.sleep(0.05)   # small delay between results
+                time.sleep(0.05)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Watchlists

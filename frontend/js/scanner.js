@@ -27,10 +27,8 @@ const Scanner = (() => {
   let assetClass = "equity";   // "equity" | "crypto"
   let _activePivotLevel = 'L'; 
  
-  // Add this alongside SS_KEY:
-  const SS_ASSET_KEY = "qs_scanner_asset";
-
-  const SS_ROWS_KEY = 'qs_scanner_rows_v1';
+  // State keys — all persisted to localStorage via QS.saveState
+  // (localStorage survives page navigation; sessionStorage does not)
   const $  = id => document.getElementById(id);
   const $$ = sel => document.querySelectorAll(sel);
 
@@ -224,8 +222,8 @@ const Scanner = (() => {
       b.classList.toggle('on', b.dataset.tf === defaultChartTF && b.offsetParent !== null);
     });
 
-    // Persist
-    try { sessionStorage.setItem('qs_scanner_asset', assetClass); } catch (_) {}
+    // Persist — use localStorage so asset class survives page navigation
+    QS.saveState({ sc_asset: assetClass });
   }
 
 
@@ -422,10 +420,9 @@ const Scanner = (() => {
       document.getElementById("rcnt").textContent = rows.length;
       QS.setNavStatus(`${rows.length} found`, `${rows.length} setups`);
       _buildList();
+      // Save everything — rows go to localStorage so they survive page navigation
       _saveUIState();
-      try {
-        sessionStorage.setItem(SS_ROWS_KEY, JSON.stringify({ rows, activeIdx }));
-      } catch (_) {}
+      QS.saveState({ sc_rows: rows, sc_activeIdx: activeIdx });
   
     } catch (e) {
       document.getElementById("rlist").innerHTML =
@@ -741,7 +738,8 @@ const Scanner = (() => {
     }
 
     API.logEvent('info', 'scanner', 'Chart loaded', { ticker: row.ticker, tf: chartTF });
-    try { sessionStorage.setItem(SS_ROWS_KEY, JSON.stringify({ rows, activeIdx })); } catch (_) {}
+    // Persist active selection to localStorage
+    QS.saveState({ sc_activeIdx: activeIdx });
 
     await _loadChartForRow(row, getDir(), row.zone_legin_ts);
     _populateInfoDrawer(row);
@@ -1162,6 +1160,7 @@ const Scanner = (() => {
   function _saveUIState() {
     const trendVals = [...$$('.tc')].map(c => ({ v: c.value, chk: c.checked }));
     QS.saveState({
+      sc_asset:   assetClass,
       sc_dir:     getDir(),      sc_tf:       getScanTF(),
       sc_chartTF: chartTF,      sc_strategy: $('strat')?.value,
       sc_order:   $('order')?.value, sc_zlb:  $('zlb')?.value,
@@ -1181,6 +1180,13 @@ const Scanner = (() => {
 
   function _restoreUIState() {
     const s = QS.loadState();
+
+    // ── Restore asset class first — everything else depends on it ──────────
+    if (s.sc_asset && s.sc_asset !== assetClass) {
+      const btn = document.querySelector(`#asset-seg [data-v="${s.sc_asset}"]`);
+      if (btn) setAsset(btn);
+    }
+
     if (s.sc_dir) {
       $$('#dir-seg .seg-btn').forEach(b => {
         b.className = 'seg-btn';
@@ -1221,17 +1227,15 @@ const Scanner = (() => {
     _renderStructureFilters();
     _updatePivotButtons();
 
-    // Restore rows
-    try {
-      const saved = JSON.parse(sessionStorage.getItem(SS_ROWS_KEY) || 'null');
-      if (saved?.rows?.length) {
-        rows = saved.rows;
-        $('rcnt').textContent = rows.length;
-        QS.setNavStatus(`${rows.length} found`, `${rows.length} setups`);
-        _buildList();
-        if (saved.activeIdx >= 0) setTimeout(() => selStock(saved.activeIdx), 500);
-      }
-    } catch(_) {}
+    // ── Restore scan rows from localStorage — survives page navigation ──────
+    if (Array.isArray(s.sc_rows) && s.sc_rows.length) {
+      rows = s.sc_rows;
+      $('rcnt').textContent = rows.length;
+      QS.setNavStatus(`${rows.length} found`, `${rows.length} setups`);
+      _buildList();
+      const savedIdx = s.sc_activeIdx ?? -1;
+      if (savedIdx >= 0) setTimeout(() => selStock(savedIdx), 500);
+    }
   }
 
   /* ════════════════════════════════════════════════════════════
@@ -1241,24 +1245,20 @@ const Scanner = (() => {
     QS.renderNav('scanner', 'nst', 'nbadge');
     InfoDrawer.attach(document.getElementById('cp'));
 
-    await Filters.loadStateGroups();   // ← replaces _loadStateGroups()
+    await Filters.loadStateGroups();
     _renderStructureFilters();
     _F.installDocClickHandler();
 
-    // Restore asset class FIRST — before restoring rows, 
-    // so rows are rendered in the correct asset context
-    const savedAsset = sessionStorage.getItem(SS_ASSET_KEY);
-    if (savedAsset === 'crypto') {
-      const btn = document.querySelector('#asset-seg [data-v="crypto"]');
-      if (btn) setAsset(btn);   // ← THIS CALL WAS MISSING
-    }
+    // _restoreUIState handles asset class restoration from localStorage —
+    // no need for the old sessionStorage read here
+    _restoreUIState();
 
-    _restoreUIState();   // restores rows, TF, dir, etc. — runs AFTER asset is restored
-  
+    // Sync single-order row visibility to actual MO state after restore
+    const row = $('single-order-row');
+    if (row) row.style.display = $('moen')?.checked ? 'none' : 'block';
 
-    // Global click handler — closes structure dropdowns ONLY if click
-    // was outside the currently open wrapper.
-    // Trend dropdown only — structure dropdowns handled by Filters module
+    // Global click handler — closes trend dropdown only
+    // (structure dropdowns are handled by Filters module)
     document.addEventListener('click', e => {
       if (!e.target.closest('#tdd') && !e.target.closest('#ttrig')) {
         $('tdd')?.classList.remove('op');
@@ -1266,7 +1266,6 @@ const Scanner = (() => {
       }
     });
 
-    // Legacy trend dropdown — stop internal clicks propagating
     $('tdd').addEventListener('click', e => e.stopPropagation());
 
     $$('.tc').forEach(cb =>
@@ -1285,10 +1284,6 @@ const Scanner = (() => {
       $(id)?.addEventListener('change', _saveUIState);
     });
 
-    _restoreUIState();
-    // Sync single-order row visibility to actual MO state after restore
-    const row = $('single-order-row');
-    if (row) row.style.display = $('moen')?.checked ? 'none' : 'block';
     window.addEventListener('beforeunload', _saveUIState);
   }
 
