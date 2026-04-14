@@ -23,6 +23,7 @@ from typing import Generator, List, Optional, Dict, Tuple
 
 import numpy as np
 import pandas as pd
+import requests
 
 warnings.simplefilter("ignore", FutureWarning)
 warnings.simplefilter("ignore", DeprecationWarning)
@@ -332,14 +333,62 @@ def load_stored_df(symbol: str, interval: str) -> Optional[pd.DataFrame]:
     return None
 
 
+import datetime as dt
+import pytz
+
+IST = pytz.timezone("Asia/Kolkata")
+
+def _market_open_ist() -> bool:
+    """True if NSE is currently in its trading session."""
+    now = dt.datetime.now(IST)
+    if now.weekday() >= 5:          # Sat=5, Sun=6
+        return False
+    open_t  = now.replace(hour=9,  minute=15, second=0, microsecond=0)
+    close_t = now.replace(hour=15, minute=30, second=0, microsecond=0)
+    return open_t <= now <= close_t
+
+
+# Freshness thresholds per interval (in minutes)
+# During market hours intraday data expires quickly
+_FRESH_TTL_MINUTES: dict = {
+    "1m":   2,    # 2 minutes during market hours
+    "5m":   5,
+    "15m":  15,
+    "1h":   30,   # re-fetch if >30 min stale during market hours
+    "4h":   60,
+    "1d":   1440, # 1 day — doesn't need intraday refresh
+    "1wk":  4320, # 3 days
+}
+
 def _is_fresh(cached: Optional[pd.DataFrame], interval: str) -> bool:
-    """True if cached data is recent enough to skip re-fetch."""
+    """
+    Returns True if cached data is recent enough to skip a re-fetch.
+
+    Logic:
+      - If market is open AND interval is intraday → use per-interval TTL in minutes
+      - If market is closed OR interval is daily/weekly → generous TTL (age in days)
+    """
     if cached is None or cached.empty:
         return False
-    age_days = (pd.Timestamp.now() - cached.index[-1]).days
-    stale    = 2 if interval in ("1d", "1wk") else 0
-    return age_days <= stale
 
+    last_ts = cached.index[-1]
+    now     = pd.Timestamp.now()
+    age_min = (now - last_ts).total_seconds() / 60
+
+    ttl = _FRESH_TTL_MINUTES.get(interval, 1440)
+
+    if _market_open_ist() and interval not in ("1d", "1wk"):
+        # During market hours: use minute-based TTL
+        return age_min <= ttl
+    else:
+        # Outside market hours: daily/weekly tolerance is fine
+        # For intraday outside market hours: data from today's session is fresh
+        age_days = (now - last_ts).days
+        if interval in ("1d", "1wk"):
+            return age_days <= 2
+        else:
+            # Good if we have data from today's market session
+            return age_days == 0
 
 # REPLACE WITH:
 def list_stored(interval: Optional[str] = None) -> List[Dict]:
@@ -508,14 +557,14 @@ def fetch_ohlcv(
             print(f"  ⚠  Instrument key not found for {ticker}")
             return pd.DataFrame()
 
-    # 4. Fetch from Upstox
+    # 4. Fetch from Upstox — historical + today's intraday stitched
     api = get_upstox_api_client(token)
-    df  = fetch_candle_data(api, instrument_key, start_str, end_str, interval)
-
+    df  = fetch_candle_data_with_today(
+        api, instrument_key, start_str, end_str, interval, token=token
+    )
     if df is not None and not df.empty:
         store_df(ticker, interval, df)
         return df
-
     return pd.DataFrame()
 
 
@@ -582,7 +631,9 @@ def fetch_batch(
         ikey = key_map.get(t, "")
         if not ikey:
             return t, None
-        return t, fetch_candle_data(api, ikey, start_str, end_str, interval)
+        return t, fetch_candle_data_with_today(
+            api, ikey, start_str, end_str, interval, token
+        )
 
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
         futures = {ex.submit(_one, t): t for t in to_fetch}
@@ -599,6 +650,232 @@ def fetch_batch(
             time.sleep(0.1)
 
     return result
+
+
+
+# data_fetch/data_fetch.py
+
+# Upstox intraday only supports these two intervals — everything else
+# must be derived by resampling 1m data locally after fetching
+UPSTOX_INTRADAY_INTERVAL_MAP: Dict[str, str] = {
+    "1m":  "1minute",
+    "5m":  "1minute",   # fetch 1m, resample to 5m locally
+    "15m": "1minute",   # fetch 1m, resample to 15m locally
+    "1h":  "30minute",  # fetch 30m, resample to 1h locally
+    "4h":  "30minute",  # fetch 30m, resample to 4h locally
+    "1d":  "30minute",  # fetch 30m, resample to daily locally
+    "1wk": "30minute",  # fetch 30m, resample to weekly locally
+}
+
+# Resample rules: map your app interval → pandas resample offset
+INTRADAY_RESAMPLE_MAP: Dict[str, Optional[str]] = {
+    "1m":  None,    # no resample needed
+    "5m":  "5min",
+    "15m": "15min",
+    "1h":  "60min",
+    "4h":  "240min",
+    "1d":  "1D",
+    "1wk": "1W",
+}
+
+# Upstox intraday bars use 09:00 open-time boundaries after resample,
+# but historical bars are labeled at 09:15 (NSE session start).
+# Shift intraday timestamps after resample to align with historical.
+INTRADAY_TIMESTAMP_OFFSET: Dict[str, int] = {
+    # 1m/5m/15m: fetched as 1minute raw which Upstox labels from 09:15 (NSE open).
+    # Resampling 1m→5m or 1m→15m preserves the 09:15 start — no offset needed.
+    "1m":  0,
+    "5m":  0,
+    "15m": 0,
+    # 1h/4h: fetched as 30minute which Upstox labels from 09:00 (clock boundary).
+    # After resample the first bar is 09:00, but historical API labels it 09:15.
+    # Shift +15min to align.
+    "1h":  15,
+    "4h":  15,
+    "1d":  0,    # daily — only date matters, not time
+    "1wk": 0,
+}
+
+
+def fetch_intraday_candle_data(
+    token: str,
+    instrument_key: str,
+    interval: str,
+) -> Optional[pd.DataFrame]:
+    """
+    Fetches TODAY's intraday candles via Upstox REST v2.
+
+    Upstox intraday endpoint ONLY supports: 1minute, 30minute.
+    All other intervals are derived by resampling locally after fetch.
+
+    Endpoint: GET /v2/historical-candle/intraday/{instrument_key}/{interval}
+    Returns None silently when market is closed or pre-open.
+    """
+    intraday_interval = UPSTOX_INTRADAY_INTERVAL_MAP.get(interval)
+    if not intraday_interval:
+        return None
+
+    from urllib.parse import quote
+    encoded_key = quote(instrument_key, safe="")
+    url = (
+        f"https://api.upstox.com/v2/historical-candle/intraday"
+        f"/{encoded_key}/{intraday_interval}"
+    )
+
+    try:
+        resp = requests.get(
+            url,
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+            timeout=10,
+        )
+
+        if resp.status_code == 200:
+            candles = resp.json().get("data", {}).get("candles", [])
+            if not candles:
+                return None  # pre-open or market closed — normal, not an error
+
+            df = pd.DataFrame(
+                candles,
+                columns=["Timestamp", "Open", "High", "Low", "Close", "Volume", "Open Interest"],
+            )
+            df["Timestamp"] = pd.to_datetime(df["Timestamp"])
+            df.set_index("Timestamp", inplace=True)
+            if df.index.tz is not None:
+                df.index = df.index.tz_localize(None)
+            df.sort_index(inplace=True)
+            df = df[~df.index.duplicated(keep="last")]
+            df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
+            df = df[df["Volume"] > 0]
+            ist_offset   = dt.timezone(dt.timedelta(hours=5, minutes=30))
+            today_ist    = dt.datetime.now(ist_offset).date()
+            market_close = pd.Timestamp(f"{today_ist} 15:30:00")
+            df = df[df.index < market_close]
+            if df.empty:
+                return None
+
+            # Resample to target interval if needed
+            resample_to = INTRADAY_RESAMPLE_MAP.get(interval)
+            if resample_to:
+                df = _resample_ohlcv(df, resample_to)
+
+            # Align with Upstox historical timestamp convention (+15min for intraday)
+            offset_min = INTRADAY_TIMESTAMP_OFFSET.get(interval, 0)
+            if offset_min:
+                df.index = df.index + pd.Timedelta(minutes=offset_min)
+
+            return df if not df.empty else None
+
+        elif resp.status_code in (400, 404):
+            try:
+                err_body = resp.json()
+            except Exception:
+                err_body = resp.text
+            print(f"  ⚠  Intraday {resp.status_code} for {instrument_key} "
+                  f"[interval={intraday_interval}]: {err_body}")
+            return None
+        else:
+            print(f"  ⚠  Intraday API {resp.status_code} for {instrument_key}")
+            return None
+
+    except requests.exceptions.Timeout:
+        print(f"  ⚠  Intraday fetch timeout for {instrument_key}")
+        return None
+    except Exception as e:
+        print(f"  ⚠  Intraday fetch failed for {instrument_key}: {e}")
+        return None
+
+
+def _resample_ohlcv(df: pd.DataFrame, rule: str) -> pd.DataFrame:
+    """
+    Resample a minute-bar DataFrame to a coarser interval.
+    Standard OHLCV aggregation: Open=first, High=max, Low=min,
+    Close=last, Volume=sum. Drops incomplete trailing candles.
+    """
+    resampled = df.resample(rule, label="left", closed="left").agg({
+        "Open":   "first",
+        "High":   "max",
+        "Low":    "min",
+        "Close":  "last",
+        "Volume": "sum",
+    }).dropna(subset=["Open"])
+
+    # Drop the last candle — it's the current in-progress bar (incomplete)
+    # Exception: for 1d/1wk we keep it since the whole point is to have today
+    if rule not in ("1D", "1W") and len(resampled) > 1 and _market_open_ist():
+        resampled = resampled.iloc[:-1]
+
+    return resampled
+
+
+def resample_intraday_to_daily(intraday_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Collapses today's intraday bars into a single daily candle.
+    Used to append 'today so far' to a historical daily series.
+    """
+    if intraday_df is None or intraday_df.empty:
+        return pd.DataFrame()
+
+    daily = intraday_df.resample("1D").agg({
+        "Open":   "first",
+        "High":   "max",
+        "Low":    "min",
+        "Close":  "last",
+        "Volume": "sum",
+    }).dropna()
+    return daily
+
+
+def fetch_candle_data_with_today(
+    api_instance,
+    instrument_key: str,
+    start: str,
+    end: str,
+    interval: str,
+    token: str = "",   
+    retries: int = 3,
+    delay: float = 2.0,
+) -> Optional[pd.DataFrame]:
+    """
+    Full fetch: historical (up to yesterday) + today's intraday stitched together.
+    
+    Strategy:
+      1. Fetch historical candles via get_historical_candle_data1
+      2. Fetch today's session via get_intraday_candle_data
+      3. If interval is daily, resample intraday → single daily candle
+      4. Concatenate, deduplicate (intraday wins for today's date)
+      5. Return clean unified DataFrame
+    
+    This is the correct production pattern for Upstox.
+    """
+    # Step 1: Historical data (yesterday and before)
+    hist_df = fetch_candle_data(
+        api_instance, instrument_key, start, end, interval, retries, delay
+    )
+
+    # Step 2: Today's intraday data
+    intra_df = None
+    if token:
+        intra_df = fetch_intraday_candle_data(token, instrument_key, interval)
+
+    if intra_df is None or intra_df.empty:
+        return hist_df  # market closed / outside hours — historical is fine
+
+    # Step 3: For daily interval, collapse intraday to a single daily candle
+    if interval in ("1d", "1wk"):
+        today_df = resample_intraday_to_daily(intra_df)
+    else:
+        today_df = intra_df
+
+    # Step 4: Stitch — historical base, today appended on top
+    if hist_df is None or hist_df.empty:
+        combined = today_df
+    else:
+        combined = pd.concat([hist_df, today_df])
+
+    combined = combined[~combined.index.duplicated(keep="last")]
+    combined.sort_index(inplace=True)
+    combined = _add_prev_close(combined)
+    return combined
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -634,7 +911,8 @@ def fetch_upstox_batch_iter(
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_key = {
                 executor.submit(
-                    fetch_candle_data, api, ikey, start_str, end_str, interval
+                    fetch_candle_data_with_today,
+                    api, ikey, start_str, end_str, interval, token
                 ): ikey
                 for ikey in batch
             }

@@ -101,7 +101,7 @@ from data_fetch.data_fetch import (
     load_token, save_token, is_token_valid,
     delete_stored, storage_summary,
     get_eq_instruments, instrument_key_to_symbol,
-    fetch_upstox_batch_iter,
+    fetch_upstox_batch_iter,_is_fresh,   
     UPSTOX_AUTH_URL, UPSTOX_TOKEN_URL,
 )
 from algos.pivot_engine import extrems, detect_trend, compute_atr, tag_signals
@@ -577,7 +577,7 @@ def chart_data(ticker):
     order_high       = int(request.args.get("order_high", 20))
 
     df = load_stored_df(ticker, interval)
-    if df is None or df.empty:
+    if df is None or df.empty or not _is_fresh(df, interval):
         df = fetch_ohlcv(ticker, interval=interval, days=days)
     if df is None or df.empty:
         return jsonify({"error": f"No data for {ticker}"}), 404
@@ -659,6 +659,20 @@ def chart_data(ticker):
         "sell_zones": _serialise_zones(sell_zones_raw),
         "trend": trend,
     }
+
+    data_source = "cache"
+    if df is None or df.empty or not _is_fresh(df, interval):
+        df = fetch_ohlcv(ticker, interval=interval, days=days)
+        data_source = "live_fetch"
+
+    # Add to payload:
+    payload["meta"] = {
+        "data_source":  data_source,
+        "last_candle":  str(df.index[-1]) if not df.empty else None,
+        "candle_count": len(df),
+        "interval":     interval,
+    }
+
     if multiorder_data:
         payload["multiorder"] = multiorder_data
 

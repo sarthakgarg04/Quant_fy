@@ -16,6 +16,7 @@ const TrendScanner = (() => {
   let chartTF    = '1d';
   let currentRow = null;
   let assetClass = 'equity';
+  let _activePivotLevel = 'L'; 
 
   /* ── Structure filters — delegated to shared Filters module ─
      Uses namespace 'ts' so IDs are ts-sfwrap-low, ts-sfdd-low …
@@ -202,11 +203,14 @@ const TrendScanner = (() => {
     if (!container) return;
     container.innerHTML = '';
 
-    Chart.setActiveLevels(mo ? ['H', 'M', 'L'] : ['single']);
+    const expectedLevels = mo ? ['H', 'M', 'L'] : ['single'];
 
-    // Use scan_params order if a row is active (scan context), else UI input
+    if (!_activePivotLevel || !expectedLevels.includes(_activePivotLevel)) {
+      _activePivotLevel = mo ? 'L' : 'single';
+    }
+    Chart.setActiveLevels([_activePivotLevel]);
+
     const sp = currentRow?.scan_params || {};
-
     if (!mo) {
       const order = sp.order || $('ts-order')?.value || 5;
       const btn   = document.createElement('button');
@@ -224,7 +228,7 @@ const TrendScanner = (() => {
       ['H', 'M', 'L'].forEach(lv => {
         const mc  = Chart.moColors[lv];
         const btn = document.createElement('button');
-        btn.className     = `pob on ${mc.cls}`;
+        btn.className     = `pob ${mc.cls}` + (_activePivotLevel === lv ? ' on' : '');
         btn.dataset.level = lv;
         btn.innerHTML     = `<span class="pob-dot" style="background:${mc.dot}"></span>${mc.label}(${orders[lv]})`;
         btn.onclick       = () => _onPivotToggle(lv, btn);
@@ -234,9 +238,10 @@ const TrendScanner = (() => {
   }
 
   function _onPivotToggle(level, btn) {
-    const newLevels = Chart.toggleLevel(level);
+    _activePivotLevel = level;
+    Chart.setActiveLevels([level]);
     document.querySelectorAll('#ts-pivot-order-btns .pob').forEach(b =>
-      b.classList.toggle('on', newLevels.includes(b.dataset.level))
+      b.classList.toggle('on', b.dataset.level === level)
     );
   }
 

@@ -25,6 +25,7 @@ const Scanner = (() => {
   let currentRow = null;
 
   let assetClass = "equity";   // "equity" | "crypto"
+  let _activePivotLevel = 'L'; 
  
   // Add this alongside SS_KEY:
   const SS_ASSET_KEY = "qs_scanner_asset";
@@ -313,23 +314,33 @@ const Scanner = (() => {
   function _updatePivotButtons() {
     const moEnabled = $('moen').checked;
     const container = $('pivot-order-btns');
+    if (!container) return;
     container.innerHTML = '';
-    Chart.setActiveLevels(moEnabled ? ['H','M','L'] : ['single']);
+
+    const expectedLevels = moEnabled ? ['H','M','L'] : ['single'];
+
+    // Reset selection if it's not valid for current mode
+    if (!_activePivotLevel || !expectedLevels.includes(_activePivotLevel)) {
+      _activePivotLevel = moEnabled ? 'L' : 'single';
+    }
+    Chart.setActiveLevels([_activePivotLevel]);
 
     if (!moEnabled) {
       const btn = document.createElement('button');
-      btn.className = 'pob on'; btn.dataset.level = 'single';
-      btn.innerHTML = `<span class="pob-dot" style="background:#3b82f6"></span>Order ${$('order').value}`;
-      btn.onclick = () => _onPivotToggle('single', btn);
+      btn.className     = 'pob on';
+      btn.dataset.level = 'single';
+      btn.innerHTML     = `<span class="pob-dot" style="background:#3b82f6"></span>Order ${$('order').value}`;
+      btn.onclick       = () => _onPivotToggle('single', btn);
       container.appendChild(btn);
     } else {
       const orders = { H: $('moh').value||20, M: $('mom').value||10, L: $('mol').value||5 };
       ['H','M','L'].forEach(lv => {
         const mc  = Chart.moColors[lv];
         const btn = document.createElement('button');
-        btn.className = `pob on ${mc.cls}`; btn.dataset.level = lv;
-        btn.innerHTML = `<span class="pob-dot" style="background:${mc.dot}"></span>${mc.label}(${orders[lv]})`;
-        btn.onclick   = () => _onPivotToggle(lv, btn);
+        btn.className     = `pob ${mc.cls}` + (_activePivotLevel === lv ? ' on' : '');
+        btn.dataset.level = lv;
+        btn.innerHTML     = `<span class="pob-dot" style="background:${mc.dot}"></span>${mc.label}(${orders[lv]})`;
+        btn.onclick       = () => _onPivotToggle(lv, btn);
         container.appendChild(btn);
       });
     }
@@ -337,9 +348,10 @@ const Scanner = (() => {
   }
 
   function _onPivotToggle(level, btn) {
-    const newLevels = Chart.toggleLevel(level);
+    _activePivotLevel = level;
+    Chart.setActiveLevels([level]);
     $$('#pivot-order-btns .pob').forEach(b =>
-      b.classList.toggle('on', newLevels.includes(b.dataset.level))
+      b.classList.toggle('on', b.dataset.level === level)
     );
     _updatePivotLegend();
   }

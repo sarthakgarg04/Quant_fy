@@ -435,6 +435,12 @@ async function _renderPivots(d, ticker, params, candles) {
     return [..._activeLevels];
   }
 
+  function selectLevel(level) {
+    _activeLevels = new Set([level]);
+    _applyVisibility();
+    return [..._activeLevels];
+  }
+
   function _applyVisibility() {
     Object.entries(_pivotSeries).forEach(([level, seriesArr]) => {
       const visible = _activeLevels.has(level);
@@ -518,7 +524,7 @@ async function _renderPivots(d, ticker, params, candles) {
   /* ── Public ──────────────────────────────────────────────── */
   return {
        init, load,
-       toggleLevel, setActiveLevels,
+       toggleLevel, selectLevel, setActiveLevels,
        bustCache, scrollToLatest, scrollToLevel,
        get activeLevels() { return [..._activeLevels]; },
        get moColors()     { return MO_COLORS; },
